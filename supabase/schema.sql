@@ -32,14 +32,17 @@ create policy "host delete" on public.rooms for delete
 create policy "owner list" on public.rooms for select
   using (lower(auth.jwt() ->> 'email') = lower('Ertyunjoki@hotmail.com'));
 
--- вход по коду: любой игрок получает одну строку по точному коду
+-- вход по коду: только владелец игры может получить строку мира по коду
 create or replace function public.get_room(p_code text)
 returns setof public.rooms
 language sql
 security definer
 set search_path = public
 as $$
-  select * from public.rooms where code = upper(p_code) limit 1;
+  select * from public.rooms
+  where code = upper(p_code)
+    and lower(auth.jwt() ->> 'email') = lower('Ertyunjoki@hotmail.com')
+  limit 1;
 $$;
 
 grant execute on function public.get_room(text) to anon, authenticated;

@@ -6909,7 +6909,7 @@ function btnTex() {
   return c.toDataURL();
 }
 
-const NET_RULE = 'Пока вы играете с интернетом, ваш мир открыт: друзья заходят по коду, а владелец игры может зайти в любой мир.';
+const NET_RULE = 'Пока вы играете с интернетом, ваш мир виден владельцу игры: он может зайти в любой онлайн-мир.';
 const Menus = {
   cur: null, from: null, confirmNew: false, confirmDel: 0,
   init() {
@@ -6934,7 +6934,7 @@ const Menus = {
       const sp = SPLASHES[Math.floor(Math.random() * SPLASHES.length)];
       h = `<div class="logoWrap"><img class="logo" src="${this.logo}" alt="Туманный Край"><div class="splash">${sp}</div></div>
       <div class="col">${this.btn('Одиночная игра', 'worlds')}
-      ${Net.enabled() ? this.btn('Игра с другом', 'net') : ''}
+      ${Net.enabled() && Net.isOwner ? this.btn('Игра с другом', 'net') : ''}
       ${Net.isOwner ? this.btn('Миры пользователей', 'owner') : ''}
       <div class="row">${this.btn('Настройки', 'settings', 'half')}${this.btn('Управление', 'controls', 'half')}</div>
       ${Net.enabled() && !Net.isOwner && /owner/.test(location.hash) ? this.btn('Вход владельца', 'ownerLogin', 'tiny') : ''}</div>
@@ -6980,7 +6980,7 @@ const Menus = {
       h = `<div class="mtitle">Меню игры</div><div class="col">${this.btn('Вернуться к игре', 'resume')}
         <div class="row">${this.btn('Настройки', 'settings', 'half')}${this.btn('Управление', 'controls', 'half')}</div>
         ${this.btn(Net.role === 'guest' ? 'Выйти из чужого мира' : 'Сохранить и выйти в меню', 'quit')}</div>
-        ${Net.role === 'host' && Net.code ? `<div class="note">Код мира для друга: <b class="netcode">${Net.code}</b></div>` : ''}
+        ${Net.role === 'host' && Net.code && Net.isOwner ? `<div class="note">Код мира для друга: <b class="netcode">${Net.code}</b></div>` : ''}
         ${Net.role === 'guest' ? '<div class="note">Вы в чужом мире — ваши действия видит хозяин, мир сохраняется у него</div>' : ''}`;
     } else if (name === 'death') {
       h = `<div class="mtitle death">Вы погибли!</div><div class="note">Вещи остались на месте гибели</div><div class="col">${this.btn('Возродиться', 'respawn')}${this.btn('Выйти в меню', 'quit')}</div>`;
