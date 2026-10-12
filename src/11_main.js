@@ -185,11 +185,12 @@ const Game = {
       Sfx.init();
       if (this.state !== 'play' || UI.gui || Menus.cur) return;
       if (!this.locked()) { this.captureMouse(true); return; }
+      if (TK.mouseDown(e.button)) { e.preventDefault(); return; }   // телекинез деревьев (владелец-существо)
       Input.mouse[e.button] = true; Input.clicked[e.button] = true;
       e.preventDefault();
     });
     $('clickHint').addEventListener('mousedown', () => { Sfx.init(); this.captureMouse(true); });
-    addEventListener('mouseup', e => { Input.mouse[e.button] = false; });
+    addEventListener('mouseup', e => { Input.mouse[e.button] = false; TK.mouseUp(e.button); });
     cv.addEventListener('contextmenu', e => e.preventDefault());
     addEventListener('mousemove', e => {
       if (this.state === 'play' && this.locked() && !UI.gui && !Menus.cur) {
@@ -200,6 +201,7 @@ const Game = {
     });
     addEventListener('wheel', e => {
       if (this.state !== 'play' || UI.gui || Menus.cur) return;
+      if (TK.wheel(e.deltaY)) return;   // наклон удерживаемого дерева
       Player.selected = (Player.selected + (e.deltaY > 0 ? 1 : -1) + 9) % 9;
       UI.refreshHotbar();
     }, { passive: true });
@@ -477,7 +479,7 @@ const Game = {
     if (this._tvT <= 0) { this._tvT = 1 / 14; Rend.updateTV(this.time, Ents.tvMode()); }
     Rend.render(cam, env, scene);
     Glimpse.draw(cam);
-    Net.tick(dt); Net.drawTags(cam);
+    Net.tick(dt); TK.update(paused ? 0 : dt); Net.drawTags(cam);
     UI.setStatic(Ents.pictureOn ? 0 : sk, Ents.mutantBurst > 0 && !Ents.pictureOn); Sfx.setStatic(sk, dt);
     $('waterFx').classList.toggle('on', !!p.eyeInWater);
     UI.updateHud(dt);

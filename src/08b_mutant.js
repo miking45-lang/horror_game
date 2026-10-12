@@ -706,16 +706,21 @@ Object.assign(Ents, {
     // ---- руки ниже колен, длинные пальцы с когтями ----
     const flex = (Math.sin(t * 0.9) + 1) * 0.08;
     for (const s of [-1, 1]) {
-      const upA = mul(mul(tor, T(s * 0.235, 0.9, -0.01)), mul(RZ(s * (0.07 + Math.sin(t * 0.7 + s) * 0.02 + A * 0.35 - (L.armSpread || 0))), RX(mix(-0.3, 2.65) - (L.armA || 0))));
-      const fo = mul(mul(upA, T(0, -1.05, 0)), RX(mix(-0.22 - flex * 0.5, -0.8)));
+      // правая рука может тянуться к цели (телекинез): L.aimK — насколько, L.aimA/aimB — углы, L.aimOpen — ладонь раскрыта
+      const ak = s === 1 ? (L.aimK || 0) : 0;
+      let rz = s * (0.07 + Math.sin(t * 0.7 + s) * 0.02 + A * 0.35 - (L.armSpread || 0)), rx = mix(-0.3, 2.65) - (L.armA || 0);
+      if (ak) { rz += ((L.aimB || 0) - rz) * ak; rx += ((L.aimA || 0) - rx) * ak; }
+      const fl = ak ? flex + ((L.aimOpen ? -0.2 : 0.9) - flex) * ak : flex;
+      const upA = mul(mul(tor, T(s * 0.235, 0.9, -0.01)), mul(RZ(rz), RX(rx)));
+      const fo = mul(mul(upA, T(0, -1.05, 0)), RX(mix(-0.22 - fl * 0.5, -0.8) * (1 - ak * 0.9)));
       const wr = mul(mul(fo, T(0, -1.0, 0)), RX(A * 1.0));
       tube([P(upA, 0, 0.03, 0), P(upA, 0, -0.5, 0), P(upA, 0, -1.05, 0), P(fo, 0, -0.5, 0), P(fo, 0, -0.97, 0)],
         [0.06, 0.044, 0.04, 0.034, 0.025], { sub: 4 });
       blob(upA, [0, -1.05, -0.01], [0.042, 0.05, 0.045]);
       blob(wr, [0, -0.06, 0], [0.045, 0.075, 0.02]);
       for (const f of [-1.5, -0.5, 0.5, 1.5]) {
-        const f1 = mul(mul(wr, T(f * 0.022, -0.12, 0)), mul(RZ(f * 0.07), RX(-0.2 - flex)));
-        const f2 = mul(mul(f1, T(0, -0.22, 0)), RX(-0.35 - flex));
+        const f1 = mul(mul(wr, T(f * 0.022, -0.12, 0)), mul(RZ(f * 0.07), RX(-0.2 - fl)));
+        const f2 = mul(mul(f1, T(0, -0.22, 0)), RX(-0.35 - fl));
         const f3 = mul(mul(f2, T(0, -0.19, 0)), RX(-0.3));
         tube([P(f1, 0, 0.01, 0), P(f1, 0, -0.22, 0), P(f2, 0, -0.19, 0)], [0.013, 0.011, 0.009], { seg: 6, sub: 3 });
         tube([P(f2, 0, -0.18, 0), P(f3, 0, -0.05, 0), P(f3, 0, -0.1, 0)], [0.009, 0.006, 0.0005], { seg: 6, sub: 2, tile: claw, blk: paleBlk });

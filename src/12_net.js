@@ -86,6 +86,9 @@ const Net = {
       .on('broadcast', { event: 'cry' }, m => this.onCry(m.payload))
       .on('broadcast', { event: 'cmd' }, m => this.onCmd(m.payload))
       .on('broadcast', { event: 'chat' }, m => this.onChat(m.payload))
+      .on('broadcast', { event: 'gt' }, m => TK.onGrab(m.payload))
+      .on('broadcast', { event: 'gp' }, m => TK.onPose(m.payload))
+      .on('broadcast', { event: 'gx' }, m => TK.onThrow(m.payload))
       .on('presence', { event: 'sync' }, () => { try { this.nPres = this.ch ? Object.keys(this.ch.presenceState()).length : 1; } catch (e) { } })
       .on('presence', { event: 'join' }, m => this.onPresJoin(m.newPresences || []))
       .on('presence', { event: 'leave' }, m => this.onPresLeave(m.leftPresences || []));
@@ -253,7 +256,7 @@ const Net = {
     if (this.sendT <= 0) {
       this.sendT = 0.15;
       const h = p.held();
-      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, st: this.cStatic ? 1 : 0 };
+      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, st: this.cStatic ? 1 : 0, ...(this.form === 'creature' ? TK.aim() : { ag: 0, ao: 0 }) };
       const sig = JSON.stringify(v), now = performance.now();
       // двигаемся или стоим — раз в 2 секунды шлём позицию, чтобы нас не сочли пропавшими
       if (!this.vanish && (sig !== this.lastSent || now - this.lastSentT > 2000)) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
@@ -281,6 +284,7 @@ const Net = {
   },
   stop() {
     clearInterval(this.hbTimer); this.hbTimer = null;
+    if (typeof TK !== 'undefined') TK.clear();
     { const box = $('chatLog'); if (box) box.innerHTML = ''; }
     if (this.role === 'host' && this.sb && this.code) {
       this.sb.from('rooms').delete().eq('code', this.code).eq('host', this.uid).then(() => { }, () => { });
@@ -533,6 +537,19 @@ const Net = {
     if (q.ar) L.armA = (L.armA || 0) + dt * 1.3;
     else if (L.armA) { const tg = Math.ceil(L.armA / PI2 - 0.02) * PI2; L.armA += Math.min(tg - L.armA, dt * 1.3); if (Math.abs(tg - L.armA) < 1e-3) L.armA = 0; }
     L.x = q.cx; L.y = q.cy; L.z = q.cz; L.yaw = L.by; L.walk = q.walk; L.wph = q.wph; L.hs = q.hs || 1;
+    // телекинез: правая рука тянется к удерживаемому дереву
+    if (Array.isArray(q.ag)) {
+      const hs = L.hs, a = L.yaw, R = [Math.cos(a), -Math.sin(a)], F = [Math.sin(a), Math.cos(a)];
+      const sx = L.x + R[0] * 0.235 * hs, sy = L.y + 2.82 * hs, sz = L.z + R[1] * 0.235 * hs;
+      const dx = q.ag[0] - sx, dy = q.ag[1] - sy, dz = q.ag[2] - sz;
+      let vx = dx * R[0] + dz * R[1], vy = dy, vz = dx * F[0] + dz * F[1];
+      const n = Math.hypot(vx, vy, vz) || 1; vx /= n; vy /= n; vz /= n;
+      const pp = 0.22, y2 = vy * Math.cos(pp) + vz * Math.sin(pp), z2 = -vy * Math.sin(pp) + vz * Math.cos(pp); vy = y2; vz = z2;   // наклон туловища
+      const c = -Math.hypot(vx, vy);
+      L.aimA = Math.atan2(-vz, c); L.aimB = Math.abs(c) > 1e-3 ? Math.atan2(vx / c, -vy / c) : 0;
+      L.aimOpen = !!q.ao;
+    }
+    L.aimK = (L.aimK || 0) + ((Array.isArray(q.ag) ? 1 : 0) - (L.aimK || 0)) * Math.min(1, dt * 6);
     return L;
   },
   // ---------- вид от третьего лица (F5): свой персонаж ----------
@@ -544,7 +561,7 @@ const Net = {
   selfQ() {
     const p = Player, S = this.self;
     return { cx: p.x, cy: p.y, cz: p.z, cya: p.yaw, pi: p.pitch, s: p.sneaking ? 1 : 0, walk: S.walk, wph: S.wph,
-      m: this.form === 'black' ? 'b' : '', o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, hs: p.hs || 1, ar: this.armSpin ? 1 : 0, seen: performance.now() };
+      m: this.form === 'black' ? 'b' : '', o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, hs: p.hs || 1, ar: this.armSpin ? 1 : 0, seen: performance.now(), ...TK.aim() };
   },
   // своё существо (если играете за него и смотрите со стороны)
   selfMutant() {
@@ -642,6 +659,7 @@ const Net = {
     if (Ents.killS) Ents.drawKill(batch, cam);   // игрок в руках существа
     else if (Ents.mawS) Ents.drawMaw(batch, cam);
     else if (Game.view && this.form !== 'creature' && !Player.dead) this.drawAv(batch, cam, this.selfQ());
+    TK.draw(batch, cam);   // телекинез: деревья в воздухе и обломки
   },
   drawAv(batch, cam, q) {
     {
