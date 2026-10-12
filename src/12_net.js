@@ -563,7 +563,7 @@ const Net = {
   selfQ() {
     const p = Player, S = this.self;
     return { cx: p.x, cy: p.y, cz: p.z, cya: p.yaw, pi: p.pitch, s: p.sneaking ? 1 : 0, walk: S.walk, wph: S.wph,
-      m: this.form === 'black' ? 'b' : '', o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, hs: p.hs || 1, ar: this.armSpin ? 1 : 0, seen: performance.now(), ...TK.aim() };
+      m: this.form === 'black' ? 'b' : '', o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, hs: p.hs || 1, ar: this.armSpin ? 1 : 0, seen: performance.now(), ...TK.aim(), _st: this.self };
   },
   // своё существо (если играете за него и смотрите со стороны)
   selfMutant() {
@@ -667,7 +667,15 @@ const Net = {
     {
       const l = World.light(Math.floor(q.cx), Math.floor(q.cy + 1), Math.floor(q.cz));
       const sky = (l >> 4) / 15, blk = (l & 15) / 15;
-      const c = Math.cos(q.cya), s = Math.sin(q.cya), sn = q.s ? 0.15 : 0;
+      // корпус поворачивается за головой с запаздыванием (как в Minecraft): при ходьбе — сразу, стоя — когда голова повёрнута больше чем на ~50°
+      const st = q._st || q, now = performance.now(), wrap = a => ((a + Math.PI) % PI2 + PI2) % PI2 - Math.PI;
+      const ddt = Math.min(0.1, (now - (st._bt || now)) / 1000); st._bt = now;
+      if (st.by === undefined) st.by = q.cya;
+      { const d = wrap(q.cya - st.by); if (q.walk > 0.15) st.by += d * Math.min(1, ddt * 10); else if (Math.abs(d) > 0.85) st.by += d - Math.sign(d) * 0.85; }
+      // наклон головы — плавно (данные приходят ~7 раз в секунду)
+      st.pi = st.pi === undefined ? (q.pi || 0) : st.pi + ((q.pi || 0) - st.pi) * Math.min(1, ddt * 14);
+      const by = st.by, hy = wrap(q.cya - by);
+      const c = Math.cos(by), s = Math.sin(by), sn = q.s ? 0.15 : 0;
       const tf = (x, y, z) => [q.cx + x * c + z * s - cam.x, q.cy + y - cam.y, q.cz - x * s + z * c - cam.z];
       const sw = Math.sin(q.wph) * 0.7 * q.walk;
       // коробка с вращением вокруг оси X в точке py (руки и ноги качаются)
@@ -681,12 +689,16 @@ const Net = {
       const S6 = t => [t, t, t, t, t, t];
       box(-0.25, 0, -0.125, 0, 0.75, 0.125, S6(pants), sw, 0.75);
       box(0, 0, -0.125, 0.25, 0.75, 0.125, S6(pants), -sw, 0.75);
-      box(-0.25, 0.75, -0.125, 0.25, 1.5, 0.125, S6(shirt), 0, 0, sn);
-      box(-0.5, 0.75, -0.125, -0.25, 1.5, 0.125, [shirt, shirt, shirt, skin, shirt, shirt], -sw * 0.8, 1.4, sn);
-      box(0.25, 0.75, -0.125, 0.5, 1.5, 0.125, [shirt, shirt, shirt, skin, shirt, shirt], sw * 0.8, 1.4, sn);
-      // голова: лицо смотрит туда же, куда игрок (−Z в локальных координатах), наклон по pitch
-      const pi = -(q.pi || 0) * 0.8;
-      box(-0.25, 1.5 - sn, -0.25, 0.25, 2.0 - sn, 0.25, dark ? S6(SH) : [TILE.av_side, TILE.av_side, TILE.av_hair, skin, TILE.av_hair, TILE.av_face], pi, 1.5 - sn);
+      box(-0.25, 0.75, -0.125, 0.25, 1.5, 0.125, S6(shirt), 0, 0, -sn);           // крадётся — корпус наклонён вперёд
+      box(-0.5, 0.75, -0.125, -0.25, 1.5, 0.125, [shirt, shirt, shirt, skin, shirt, shirt], -sw * 0.8, 1.4, -sn);
+      box(0.25, 0.75, -0.125, 0.5, 1.5, 0.125, [shirt, shirt, shirt, skin, shirt, shirt], sw * 0.8, 1.4, -sn);
+      // голова: лицо (−Z) смотрит туда же, куда игрок; сначала наклон вверх/вниз, затем поворот относительно корпуса
+      const pr = clamp(st.pi, -1.5, 1.5), cp = Math.cos(pr), sp = Math.sin(pr), ch = Math.cos(hy), shy = Math.sin(hy), py0 = 1.5 - sn;
+      const HT = (x, y, z) => {
+        const yy = y - py0, y2 = yy * cp - z * sp, z2 = yy * sp + z * cp;          // смотрит вверх — макушка уходит назад
+        return tf(x * ch + z2 * shy, y2 + py0, -x * shy + z2 * ch);
+      };
+      avBox(batch, -0.25, py0, -0.25, 0.25, py0 + 0.5, 0.25, dark ? S6(SH) : [TILE.av_side, TILE.av_side, TILE.av_hair, skin, TILE.av_hair, TILE.av_face], HT, sky, blk);
     }
   },
   // подписи с именами над головами
