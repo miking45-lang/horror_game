@@ -205,7 +205,7 @@ const Game = {
     }, { passive: true });
     addEventListener('keydown', e => {
       const c = e.code;
-      if (['F1', 'F3', 'Space', 'Tab', 'ArrowUp', 'ArrowDown'].includes(c) && this.state === 'play' && document.activeElement?.tagName !== 'INPUT') e.preventDefault();
+      if ((['F1', 'F3', 'Space', 'Tab', 'ArrowUp', 'ArrowDown'].includes(c) || (c === 'F5' && !e.ctrlKey)) && this.state === 'play' && document.activeElement?.tagName !== 'INPUT') e.preventDefault();
       if (this.state !== 'play') return;
       if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
       if (UI.gui) {
@@ -240,6 +240,7 @@ const Game = {
       else if (c === 'KeyE' && !Player.dead) UI.openInventory();
       else if (c === 'F3') UI.debug = !UI.debug;
       else if (c === 'F1') UI.hideHud = !UI.hideHud;
+      else if (c === 'F5' && !e.ctrlKey) this.view = ((this.view || 0) + 1) % 3;   // от первого лица → со спины → спереди
       else if (c === 'Escape' && !this.locked()) Menus.show('pause');
       else if (c === 'Escape' && this.freeLook) Menus.show('pause');
       else if (c === 'KeyQ') {
@@ -450,12 +451,21 @@ const Game = {
       roll: Math.sin(ph) * 0.006 * ba + (p.hurtT > 0 ? Math.sin(p.hurtT * 30) * 0.03 : 0)
     };
     if (p.dead) { cam.y = p.y + 0.3; cam.roll = 0.5; }
+    else if (this.view) {   // F5: камера позади или спереди, не залезает в блоки
+      const d = lookDir(), s = this.view === 1 ? -1 : 1, D = 4 * Math.max(1, p.hs || 1) + (Net.form === 'creature' ? 1.5 : 0);
+      let t = 0.3;
+      for (; t < D; t += 0.1) if (SOLID[World.get(Math.floor(cam.x + d[0] * s * t), Math.floor(cam.y + d[1] * s * t), Math.floor(cam.z + d[2] * s * t))]) break;
+      t = Math.max(0.3, Math.min(D, t) - 0.3);
+      cam.x += d[0] * s * t; cam.y += d[1] * s * t; cam.z += d[2] * s * t; cam.roll = 0;
+      if (this.view === 2) { cam.yaw = p.yaw + Math.PI; cam.pitch = -p.pitch; }
+    }
+    Net.selfStep(dt);
     const tg = this.buildTargetGfx(cam);
     const fig = Ents.buildFigure(this.batches.fig, cam);
     const scene = {
       ents: Ents.build(this.batches.ents, cam), figure: fig, figureColor: [0.022, 0.02, 0.026, 1],
-      crack: tg.crack, outline: tg.outline, hand: (UI.hideHud || p.dead) ? null : this.buildHand(),
-      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Net.morphMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
+      crack: tg.crack, outline: tg.outline, hand: (UI.hideHud || p.dead || this.view) ? null : this.buildHand(),
+      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Net.morphMutant() || Net.selfMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
       ghost: Ents.buildMutant(this.batches.ghost, this.batches.ghostEyes, cam, Ents.ghost), ghostEyes: this.batches.ghostEyes
     };
     this._tvT = (this._tvT || 0) - dt;

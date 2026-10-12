@@ -482,9 +482,16 @@ const Net = {
   // модель существа на месте такого игрока (для отрисовки)
   morphMutant() {
     const q = this.creaturePeer(); if (!q) return null;
+    if (!q.L) q.L = this.newPoseL(q.cya + Math.PI);
+    return this.mutantPose(q.L, q);
+  },
+  newPoseL(look) {
+    return { active: true, day: false, A: 0, S: 0, snapT: 0, twitchV: 0, gp: 0, phase: 0, t: Math.random() * 100,
+      by: look, hy: 0, hp: 0, hyT: 0, hpT: 0, hT: 0, hroll: 0, last: performance.now() };
+  },
+  // поза существа по данным игрока q: { cx, cy, cz, cya, pi, walk, wph, hs, ar }
+  mutantPose(L, q) {
     const look = q.cya + Math.PI, wrap = a => ((a + Math.PI) % PI2 + PI2) % PI2 - Math.PI, now = performance.now();
-    const L = q.L || (q.L = { active: true, day: false, A: 0, S: 0, snapT: 0, twitchV: 0, gp: 0, phase: 0, t: Math.random() * 100,
-      by: look, hy: 0, hp: 0, hyT: 0, hpT: 0, hT: 0, hroll: 0, last: now });
     const dt = Math.min(0.1, (now - L.last) / 1000); L.last = now; L.t += dt;
     // корпус стоит на месте и разворачивается, только когда существо идёт (вперёд, назад, вбок)
     if (q.walk > 0.15) L.by += wrap(look - L.by) * Math.min(1, dt * 7 * q.walk);
@@ -506,6 +513,24 @@ const Net = {
     else if (L.armA) { const tg = Math.ceil(L.armA / PI2 - 0.02) * PI2; L.armA += Math.min(tg - L.armA, dt * 1.3); if (Math.abs(tg - L.armA) < 1e-3) L.armA = 0; }
     L.x = q.cx; L.y = q.cy; L.z = q.cz; L.yaw = L.by; L.walk = q.walk; L.wph = q.wph; L.hs = q.hs || 1;
     return L;
+  },
+  // ---------- вид от третьего лица (F5): свой персонаж ----------
+  self: { walk: 0, wph: 0 },
+  selfStep(dt) {
+    const p = Player, S = this.self, sp = Math.hypot(p.vx || 0, p.vz || 0);
+    S.walk += ((sp > 0.4 ? 1 : 0) - S.walk) * Math.min(1, dt * 8); S.wph += dt * Math.min(sp, 6) * 2.2;
+  },
+  selfQ() {
+    const p = Player, S = this.self;
+    return { cx: p.x, cy: p.y, cz: p.z, cya: p.yaw, pi: p.pitch, s: p.sneaking ? 1 : 0, walk: S.walk, wph: S.wph,
+      m: this.form === 'black' ? 'b' : '', o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, hs: p.hs || 1, ar: this.armSpin ? 1 : 0, seen: performance.now() };
+  },
+  // своё существо (если играете за него и смотрите со стороны)
+  selfMutant() {
+    if (this.form !== 'creature' || !Game.view || Player.dead) return null;
+    const q = this.selfQ();
+    if (!this.selfL) this.selfL = this.newPoseL(q.cya + Math.PI);
+    return this.mutantPose(this.selfL, q);
   },
   onBye(v) { if (!v || v.u === this.uid) return; this.peers.delete(v.u); this.dropTag(v.u); },
   // ---------- события хозяина → наблюдателю ----------
@@ -587,10 +612,16 @@ const Net = {
   },
   // ---------- отрисовка чужих игроков ----------
   buildAvatars(batch, cam) {
-    if (!this.peers.size) return;
     const now = performance.now();
     for (const q of this.peers.values()) {
       if (now - (q.seen || 0) > 15000 || q.m === 'c') continue;            // существо рисуется отдельной моделью
+      this.drawAv(batch, cam, q);
+    }
+    // F5: свой персонаж (за существо — отдельная модель, см. selfMutant)
+    if (Game.view && this.form !== 'creature' && !Player.dead) this.drawAv(batch, cam, this.selfQ());
+  },
+  drawAv(batch, cam, q) {
+    {
       const l = World.light(Math.floor(q.cx), Math.floor(q.cy + 1), Math.floor(q.cz));
       const sky = (l >> 4) / 15, blk = (l & 15) / 15;
       const c = Math.cos(q.cya), s = Math.sin(q.cya), sn = q.s ? 0.15 : 0;
