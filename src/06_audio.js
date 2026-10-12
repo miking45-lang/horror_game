@@ -513,23 +513,28 @@ const Sfx = {
       this.ctx.decodeAudioData(u.buffer, b => { this.smexBuf = b; }, () => { });
     } catch (e) { }
   },
-  // звук существа (NumPad 1, когда владелец в облике существа); vol и pan — по расстоянию и направлению
-  cryReady() { return !!(this.on && this.ctx && this.cryBuf); },
-  cry(vol = 1, pan = 0) {
-    if (!this.cryReady()) return 0;
-    const ctx = this.ctx, src = ctx.createBufferSource(), g = ctx.createGain(), p = ctx.createStereoPanner();
-    src.buffer = this.cryBuf; g.gain.value = vol; p.pan.value = Math.max(-1, Math.min(1, pan));
+  // звуки существа (NumPad 1, NumPad 2 — когда владелец в облике существа); vol и pan — по расстоянию и направлению
+  cryBufs: [], CRY_SRC: ['CRY_B64', 'CRY2_B64'],
+  cryReady(k = 0) { return !!(this.on && this.ctx && this.cryBufs[k]); },
+  cry(k = 0, vol = 1, pan = 0) {
+    if (!this.cryReady(k)) return 0;
+    const ctx = this.ctx, src = ctx.createBufferSource(), g = ctx.createGain(), p = ctx.createStereoPanner(), buf = this.cryBufs[k];
+    src.buffer = buf; g.gain.value = vol; p.pan.value = Math.max(-1, Math.min(1, pan));
     src.connect(g); g.connect(p); p.connect(this.master); src.start(ctx.currentTime + 0.02);
-    return this.cryBuf.duration;
+    return buf.duration;
   },
   loadCry() {
-    if (this.cryBuf || this._cr || !this.ctx || typeof CRY_B64 === 'undefined') return;
+    if (this._cr || !this.ctx) return;
     this._cr = true;
-    try {
-      const bin = atob(CRY_B64), u = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-      this.ctx.decodeAudioData(u.buffer, b => { this.cryBuf = b; }, () => { });
-    } catch (e) { }
+    this.CRY_SRC.forEach((name, k) => {
+      try {
+        const b64 = window[name] !== undefined ? window[name] : (name === 'CRY_B64' && typeof CRY_B64 !== 'undefined' ? CRY_B64 : name === 'CRY2_B64' && typeof CRY2_B64 !== 'undefined' ? CRY2_B64 : null);
+        if (!b64) return;
+        const bin = atob(b64), u = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+        this.ctx.decodeAudioData(u.buffer, b => { this.cryBufs[k] = b; }, () => { });
+      } catch (e) { }
+    });
   },
   // ночной «HELP ME HELL»: помехи нарастают, с 14-й секунды — чёрный экран до конца трека
   hellReady() { return !!(this.on && this.ctx && this.hellBuf); },
