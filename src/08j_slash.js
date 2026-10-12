@@ -8,7 +8,7 @@ Object.assign(Ents, {
   slashS: null, slashL: null,
   forceSlash(from) {
     const p = Player;
-    if (this.slashS || this.killS || this.mawS || p.dead || Game.state !== 'play') return false;
+    if (this.slashS || this.killS || this.mawS || this.burstS || p.dead || Game.state !== 'play') return false;
     if (this.stopMutantEvents) this.stopMutantEvents();
     if (UI.gui) UI.closeScreen();
     const fx = from && Number.isFinite(from.x) ? from.x : p.x - Math.sin(p.yaw) * 2, fz = from && Number.isFinite(from.z) ? from.z : p.z - Math.cos(p.yaw) * 2;

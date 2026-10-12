@@ -116,6 +116,18 @@ const Sfx = {
     o.connect(f); f.connect(g); g.connect(this.sfx); o.start(t); o.stop(t + 0.25);
     this.tone(t, 'sine', 90, 50, 0.12, 0.3);
   },
+  // кровавый взрыв: глухой удар, рваный хлопок и мокрые шлепки разлетающихся частей
+  gore() {
+    if (!this.on) return; const t = this.t();
+    this.tone(t, 'sine', 140, 28, 0.7, 0.9);
+    this.tone(t, 'triangle', 70, 35, 0.5, 0.5);
+    this.burst(t, 'lowpass', 900, 0.7, 0.45, 0.9);
+    this.burst(t + 0.01, 'bandpass', 1800, 1.2, 0.25, 0.5);
+    for (let i = 0; i < 9; i++) {
+      const tt = t + 0.08 + i * 0.07 + Math.random() * 0.05;
+      this.burst(tt, 'bandpass', 500 + Math.random() * 900, 3, 0.09 + Math.random() * 0.08, 0.25 + Math.random() * 0.2, null, (Math.random() - 0.5) * 1.4);
+    }
+  },
   splash(v = 0.3) {
     if (!this.on) return; const t = this.t();
     const f = this.burst(t, 'lowpass', 1600, 0.7, 0.5, v); f.frequency.exponentialRampToValueAtTime(300, t + 0.45);

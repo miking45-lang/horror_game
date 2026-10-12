@@ -91,6 +91,7 @@ const Net = {
       .on('broadcast', { event: 'gx' }, m => TK.onThrow(m.payload))
       .on('broadcast', { event: 'ph' }, m => TK.onPHold(m.payload))
       .on('broadcast', { event: 'sk' }, m => TK.onStakes(m.payload))
+      .on('broadcast', { event: 'pb' }, m => TK.onPBurst(m.payload))
       .on('broadcast', { event: 'sx' }, m => TK.onStakeThrow(m.payload))
       .on('broadcast', { event: 'pt' }, m => TK.onPThrow(m.payload))
       .on('presence', { event: 'sync' }, () => { try { this.nPres = this.ch ? Object.keys(this.ch.presenceState()).length : 1; } catch (e) { } })
@@ -666,6 +667,7 @@ const Net = {
     if (Ents.killS) Ents.drawKill(batch, cam);   // игрок в руках существа
     else if (Ents.mawS) Ents.drawMaw(batch, cam);
     else if (Ents.slashS && Ents.slashS.ph >= 1) Ents.drawSlash(batch, cam);
+    else if (Ents.burstS) Ents.drawBurst(batch, cam);
     else if (Game.view && this.form !== 'creature' && !Player.dead) this.drawAv(batch, cam, this.selfQ());
     TK.draw(batch, cam);   // телекинез: деревья в воздухе и обломки
   },

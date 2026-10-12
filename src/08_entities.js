@@ -92,7 +92,8 @@ const Ents = {
     if (typeof Net !== 'undefined' && Net.observer()) { this.fig.active = false; this.ghost.active = false; this.updateDeep(dt); Net.fxStep(dt); return; }
     if (this.killS) { this.updateKill(dt); return; }
     if (this.mawS) { this.updateMaw(dt); return; }
-    if (this.slashS) { this.updateSlash(dt); return; }   // «рассечение» (ЛКМ существом)   // «из экрана» (NumPad 3)   // «расправа» (NumPad 0) — всё остальное ждёт
+    if (this.slashS) { this.updateSlash(dt); return; }
+    if (this.burstS) { this.updateBurst(dt); return; }   // «разрыв» (колёсико, игрок в телекинезе)   // «рассечение» (ЛКМ существом)   // «из экрана» (NumPad 3)   // «расправа» (NumPad 0) — всё остальное ждёт
     if (this.scrS) this.updateScreamer(dt);
     this.updateFigure(dt);
     // владелец в облике существа: события существа у хозяина остановлены, помехи — от близости владельца

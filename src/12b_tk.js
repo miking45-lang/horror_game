@@ -15,7 +15,11 @@ const TK = {
   canUse() { return Net.canCmd() && Net.form === 'creature' && Game.state === 'play' && !UI.gui && !Menus.cur && !Player.dead; },
   // ---------- ввод (только у владельца) ----------
   mouseDown(btn) {
-    if (this.heldP) { if (btn === 0) this.releasePlayer(true); return true; }
+    if (this.heldP) {
+      if (btn === 0) this.releasePlayer(true);
+      else if (btn === 1) this.burstPlayer();   // колёсико — разорвать
+      return true;
+    }
     if (this.held) { if (btn === 0) this.release(true); return true; }
     if (btn === 2 && this.canUse() && this.grabPlayer()) return true;
     if (btn === 0 && this.canUse() && this.trySlash()) return true;
@@ -133,6 +137,17 @@ const TK = {
     this.sendT = 0; Net.lastSent = ''; Net.sendT = 0;
     return true;
   },
+  burstPlayer() {
+    const H = this.heldP; if (!H) return;
+    this.heldP = null;
+    Net.send('pb', { u: Net.uid });
+    this.openT = 0.6; this.lastAim = H.pos.slice(); Net.lastSent = ''; Net.sendT = 0;
+  },
+  onPBurst(v) {
+    if (!v || Net.role !== 'host' || !Net.isOwnerPeer(v.u)) return;
+    this.carried = null; this.pflight = null;
+    Ents.forceBurst();
+  },
   releasePlayer(thrown) {
     const H = this.heldP; if (!H) return;
     this.heldP = null;
@@ -155,6 +170,7 @@ const TK = {
   },
   hostCarry(dt) {
     const p = Player;
+    if (Ents.burstS) { this.carried = null; this.pflight = null; return; }
     if (this.carried) {
       const C = this.carried;
       if (performance.now() - C.seen > 1500 || p.dead) { this.carried = null; this.pflight = p.dead ? null : { v: [0, 0, 0], t: 0 }; return; }
