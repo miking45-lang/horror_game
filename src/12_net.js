@@ -36,7 +36,7 @@ const Net = {
     if (!this.enabled()) return Promise.reject(new Error('Сетевая игра не настроена'));
     if (this.loading) return this.loading;
     this.loading = (async () => {
-      if (typeof supabase === 'undefined') await this.script(NET_SDK);
+      if (typeof supabase === 'undefined') throw new Error('Библиотека сети не загрузилась');
       const c = this.cfg();
       this.sb = supabase.createClient(c.url, c.anonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
       const { data } = await this.sb.auth.getSession();
