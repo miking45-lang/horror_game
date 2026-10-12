@@ -90,6 +90,8 @@ const Net = {
       .on('broadcast', { event: 'gp' }, m => TK.onPose(m.payload))
       .on('broadcast', { event: 'gx' }, m => TK.onThrow(m.payload))
       .on('broadcast', { event: 'ph' }, m => TK.onPHold(m.payload))
+      .on('broadcast', { event: 'sk' }, m => TK.onStakes(m.payload))
+      .on('broadcast', { event: 'sx' }, m => TK.onStakeThrow(m.payload))
       .on('broadcast', { event: 'pt' }, m => TK.onPThrow(m.payload))
       .on('presence', { event: 'sync' }, () => { try { this.nPres = this.ch ? Object.keys(this.ch.presenceState()).length : 1; } catch (e) { } })
       .on('presence', { event: 'join' }, m => this.onPresJoin(m.newPresences || []))

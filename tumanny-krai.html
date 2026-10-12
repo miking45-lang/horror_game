@@ -7901,6 +7901,7 @@ const Game = {
       }
       if (c === 'Numpad5' && Net.canCmd()) { e.preventDefault(); Menus.show('morph'); this.releaseMouse(); return; }
       if ((c === 'Numpad4' || c === 'Numpad6') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.setStatic(c === 'Numpad4'); return; }
+      if (c === 'Enter' && TK.held) { e.preventDefault(); TK.toStakes(); return; }   // дерево в руке → колья
       if (c === 'Numpad3' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerMaw(); return; }
       if (c === 'Numpad0' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerKill(); return; }
       if (c === 'Numpad9' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerScreamer(); return; }
@@ -8260,6 +8261,8 @@ const Net = {
       .on('broadcast', { event: 'gp' }, m => TK.onPose(m.payload))
       .on('broadcast', { event: 'gx' }, m => TK.onThrow(m.payload))
       .on('broadcast', { event: 'ph' }, m => TK.onPHold(m.payload))
+      .on('broadcast', { event: 'sk' }, m => TK.onStakes(m.payload))
+      .on('broadcast', { event: 'sx' }, m => TK.onStakeThrow(m.payload))
       .on('broadcast', { event: 'pt' }, m => TK.onPThrow(m.payload))
       .on('presence', { event: 'sync' }, () => { try { this.nPres = this.ch ? Object.keys(this.ch.presenceState()).length : 1; } catch (e) { } })
       .on('presence', { event: 'join' }, m => this.onPresJoin(m.newPresences || []))
@@ -9009,7 +9012,7 @@ const TK = {
     Net.cap++; try { for (const c of cells) World.set(c[0], c[1], c[2], 0); } finally { Net.cap--; }
     const dist = clamp(Math.hypot(cx - p.x, cy - ey, cz - p.z), 6, 16);
     const id = Math.random().toString(36).slice(2, 9);
-    this.held = { id, blocks, pos: [cx, cy, cz], dist, yaw0: p.yaw, yawC: p.yaw, tilt: 0 };
+    this.held = { id, blocks, pos: [cx, cy, cz], dist, yaw0: p.yaw, yawC: p.yaw, tilt: 0, pc: p.pitch };
     Net.send('gt', { u: Net.uid, id, b: blocks.flat(), x: cx, y: cy, z: cz, y0: p.yaw });
     this.openT = 0; Net.lastSent = ''; Net.sendT = 0;
     return true;
@@ -9017,6 +9020,7 @@ const TK = {
   release(thrown) {
     const H = this.held; if (!H) return;
     this.held = null;
+    if (H.stakes) { this.releaseStakes(H, thrown); return; }
     const d = lookDir(), v = thrown ? [d[0] * 34, d[1] * 34 + 2, d[2] * 34] : [0, 0, 0];
     const F = { id: H.id, blocks: H.blocks, pos: H.pos.slice(), vel: v, yaw0: H.yaw0, yawC: H.yawC, tilt: H.tilt, spin: thrown ? 2.2 : 0.4, t: 0, mode: thrown ? 'throw' : 'drop' };
     this.flying.push(F);
@@ -9094,6 +9098,104 @@ const TK = {
     }
     p.x = nx; p.y = ny; p.z = nz; p.vx = p.vy = p.vz = 0; p.fallDist = 0;
   },
+  // ---------- колья: Enter, пока держите дерево ----------
+  stakes: [],
+  toStakes() {
+    const H = this.held; if (!H || H.stakes) return false;
+    H.stakes = clamp(Math.round(H.blocks.length / 10), 3, 30);
+    H.seed = (Math.random() * 1e9) | 0;
+    this.splinters(H);
+    Net.send('sk', { u: Net.uid, id: H.id, n: H.stakes });
+    return true;
+  },
+  splinters(T) {   // дерево с хрустом раскалывается на колья — щепки
+    const n = T.blocks.length;
+    for (let i = 0; i < 40 && this.debris.length < 400; i++) {
+      const b = T.blocks[Math.floor(Math.random() * n)], o = this.rot(T, b);
+      this.debris.push({ id: b[3], x: T.pos[0] + o[0] * 0.5, y: T.pos[1] + o[1] * 0.5, z: T.pos[2] + o[2] * 0.5, vx: (Math.random() - 0.5) * 5, vy: Math.random() * 4, vz: (Math.random() - 0.5) * 5, s: 0.08 + Math.random() * 0.12, t: 0, life: 1 + Math.random() });
+    }
+    try { Sfx.breakB('wood'); } catch (e) { }
+  },
+  onStakes(v) { const T = v && this.remote.get(v.id); if (!T || T.stakes) return; T.stakes = clamp(v.n | 0, 1, 40); this.splinters(T); },
+  // направление пучка: куда смотрит держащий
+  bundleDir(T) { const a = T.yawC, c = Math.cos(T.pc || 0); return [-Math.sin(a) * c, Math.sin(T.pc || 0), -Math.cos(a) * c]; },
+  basis(f) {
+    let r = [f[2], 0, -f[0]]; const rl = Math.hypot(r[0], r[2]);
+    r = rl < 1e-4 ? [1, 0, 0] : [r[0] / rl, 0, r[2] / rl];
+    // r = f × up (вправо), u = r × f (вверх)
+    r = [-r[0], 0, -r[2]];
+    const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
+    return [r, u];
+  },
+  // раскладка кольев в пучке: спираль в плоскости поперёк направления
+  bundleSlots(n) { const out = []; for (let i = 0; i < n; i++) { const r = 0.32 * Math.sqrt(i + 0.3), a = i * 2.39996; out.push([Math.cos(a) * r, Math.sin(a) * r]); } return out; },
+  drawBundle(batch, cam, T) {
+    const f = this.bundleDir(T), [r, u] = this.basis(f), sl = this.bundleSlots(T.stakes);
+    for (const [a, b] of sl) this.drawStake(batch, cam, [T.pos[0] + r[0] * a + u[0] * b, T.pos[1] + r[1] * a + u[1] * b, T.pos[2] + r[2] * a + u[2] * b], f, 0);
+  },
+  releaseStakes(H, thrown) {
+    const f = lookDir();
+    const msg = { u: Net.uid, id: H.id, x: +H.pos[0].toFixed(2), y: +H.pos[1].toFixed(2), z: +H.pos[2].toFixed(2), dx: +f[0].toFixed(4), dy: +f[1].toFixed(4), dz: +f[2].toFixed(4), n: H.stakes, seed: H.seed, m: thrown ? 'throw' : 'drop' };
+    this.spawnStakes(msg);
+    Net.send('sx', msg);
+    this.openT = thrown ? 0.5 : 0.25; this.lastAim = H.pos.slice(); Net.lastSent = ''; Net.sendT = 0;
+  },
+  onStakeThrow(v) { if (!v) return; this.remote.delete(v.id); this.spawnStakes(v); },
+  spawnStakes(v) {
+    const f = [v.dx, v.dy, v.dz], [r, u] = this.basis(f), sl = this.bundleSlots(clamp(v.n | 0, 1, 40)), rnd = mulberry32(v.seed | 0), thrown = v.m === 'throw';
+    for (const [a, b] of sl) {
+      const p = [v.x + r[0] * a + u[0] * b, v.y + r[1] * a + u[1] * b, v.z + r[2] * a + u[2] * b];
+      const sp = 48 + rnd() * 6, jx = (rnd() - 0.5) * 1.6, jy = (rnd() - 0.5) * 1.6;
+      const vel = thrown ? [f[0] * sp + r[0] * jx + u[0] * jy, f[1] * sp + r[1] * jx + u[1] * jy + 1, f[2] * sp + r[2] * jx + u[2] * jy] : [(rnd() - 0.5) * 1.5, 0, (rnd() - 0.5) * 1.5];
+      this.stakes.push({ p, v: vel, dir: f.slice(), mode: thrown ? 'throw' : 'drop', stuck: false, hit: false, t: 0, life: thrown ? 9 : 1.6, fade: 0 });
+    }
+  },
+  updateStakes(dt) {
+    const pl = Player;
+    for (let i = this.stakes.length - 1; i >= 0; i--) {
+      const k = this.stakes[i]; k.t += dt;
+      if (k.stuck) { if (k.t > k.life) { k.fade += dt; if (k.fade > 1) this.stakes.splice(i, 1); } continue; }
+      if (k.mode === 'drop') {                        // просто падают и исчезают
+        k.v[1] -= 20 * dt; for (let a = 0; a < 3; a++) k.p[a] += k.v[a] * dt;
+        const n = Math.hypot(k.v[0], k.v[1], k.v[2]); if (n > 1) k.dir = k.v.map(x => x / n);
+        if (SOLID[World.get(Math.floor(k.p[0]), Math.floor(k.p[1] - 0.3), Math.floor(k.p[2]))]) { k.v = [0, 0, 0]; }
+        k.fade = clamp((k.t - 0.6) / 1.0, 0, 1); if (k.t > k.life) this.stakes.splice(i, 1);
+        continue;
+      }
+      // бросок: летят остриём вперёд, на пути проверяем блоки и игрока (несколько шагов за кадр)
+      k.v[1] -= 6 * dt;
+      const n = Math.hypot(k.v[0], k.v[1], k.v[2]); k.dir = k.v.map(x => x / n);
+      const steps = Math.max(1, Math.ceil(n * dt / 0.3));
+      for (let s = 0; s < steps && !k.stuck; s++) {
+        for (let a = 0; a < 3; a++) k.p[a] += k.v[a] * dt / steps;
+        const tip = [k.p[0] + k.dir[0] * 0.8, k.p[1] + k.dir[1] * 0.8, k.p[2] + k.dir[2] * 0.8];
+        // кол проходит сквозь игрока — большой урон (у хозяина мира, один раз на кол)
+        if (!k.hit && Net.role === 'host' && !pl.dead && Math.abs(tip[0] - pl.x) < 0.4 && Math.abs(tip[2] - pl.z) < 0.4 && tip[1] > pl.y && tip[1] < pl.y + 1.9) {
+          k.hit = true; hurtPlayer(14, true); Game.flickerPulse = Math.max(Game.flickerPulse || 0, 0.2);
+          for (let j = 0; j < 12 && this.debris.length < 400; j++) this.debris.push({ id: B.LOG, red: 1, x: tip[0], y: tip[1], z: tip[2], vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2, vz: (Math.random() - 0.5) * 3, s: 0.05, t: 0, life: 0.8 });
+        }
+        if (SOLID[World.get(Math.floor(tip[0]), Math.floor(tip[1]), Math.floor(tip[2]))]) {
+          // вонзается: остриё уходит в блок на треть длины
+          for (let a = 0; a < 3; a++) k.p[a] += k.dir[a] * 0.35;
+          k.stuck = true; k.t = 0; k.life = 60; k.v = [0, 0, 0];
+          try { Sfx.material('wood', 0.5, true); } catch (e) { }
+        }
+      }
+      if (!k.stuck && (k.t > 9 || k.p[1] < -10)) this.stakes.splice(i, 1);
+    }
+  },
+  // кол: древко из коры и заострённый светлый наконечник; dir — куда смотрит остриё
+  drawStake(batch, cam, p, dir, fade) {
+    if (fade >= 1) return;
+    const f = dir, [r, u] = this.basis(f), s = 1 - (fade || 0) * 0.85;
+    const l = World.light(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2])), sky = Math.max(0.5, (l >> 4) / 15) * s, blk = (l & 15) / 15 * s;
+    const T = (x, y, z) => [p[0] + r[0] * x + u[0] * y + f[0] * z - cam.x, p[1] + r[1] * x + u[1] * y + f[1] * z - cam.y, p[2] + r[2] * x + u[2] * y + f[2] * z - cam.z];
+    const bark = BLK[B.LOG].tiles[0], wood = BLK[B.PLANKS].tiles[0], S6 = t => [t, t, t, t, t, t];
+    avBox(batch, -0.07, -0.07, -0.8, 0.07, 0.07, 0.42, S6(bark), T, sky, blk);
+    avBox(batch, -0.055, -0.055, 0.42, 0.055, 0.055, 0.58, S6(wood), T, sky, blk);
+    avBox(batch, -0.035, -0.035, 0.58, 0.035, 0.035, 0.7, S6(wood), T, sky, blk);
+    avBox(batch, -0.015, -0.015, 0.7, 0.015, 0.015, 0.82, S6(wood), T, sky, blk);
+  },
   // ---------- сеть ----------
   onGrab(v) {
     if (!v || v.u === Net.uid || !Array.isArray(v.b)) return;
@@ -9102,7 +9204,7 @@ const TK = {
   },
   onPose(v) {
     const T = v && this.remote.get(v.id); if (!T) return;
-    T.tgt = [v.x, v.y, v.z]; T.yawC = v.yc; T.tilt = v.t; T.seen = performance.now();
+    T.tgt = [v.x, v.y, v.z]; T.yawC = v.yc; T.tilt = v.t; T.pc = v.pc || 0; T.seen = performance.now();
   },
   onThrow(v) {
     const T = v && this.remote.get(v.id); if (!T) return;
@@ -9126,9 +9228,9 @@ const TK = {
       const H = this.held, d = lookDir(), ey = p.y + EYE * (p.hs || 1), k = Math.min(1, dt * 9);
       const tg = [p.x + d[0] * H.dist, ey + d[1] * H.dist, p.z + d[2] * H.dist];
       for (let i = 0; i < 3; i++) H.pos[i] += (tg[i] - H.pos[i]) * k;
-      H.yawC = p.yaw;
+      H.yawC = p.yaw; H.pc = p.pitch;
       this.sendT -= dt;
-      if (this.sendT <= 0) { this.sendT = 0.1; Net.send('gp', { u: Net.uid, id: H.id, x: +H.pos[0].toFixed(2), y: +H.pos[1].toFixed(2), z: +H.pos[2].toFixed(2), yc: +H.yawC.toFixed(3), t: +H.tilt.toFixed(3) }); }
+      if (this.sendT <= 0) { this.sendT = 0.1; Net.send('gp', { u: Net.uid, id: H.id, x: +H.pos[0].toFixed(2), y: +H.pos[1].toFixed(2), z: +H.pos[2].toFixed(2), yc: +H.yawC.toFixed(3), t: +H.tilt.toFixed(3), pc: +H.pc.toFixed(3) }); }
     }
     if (this.openT > 0) { this.openT -= dt; if (this.openT <= 0) { this.lastAim = null; Net.lastSent = ''; Net.sendT = 0; } }
     const now = performance.now();
@@ -9145,6 +9247,7 @@ const TK = {
       const hitAt = this.collide(F);
       if (hitAt || F.t > 8 || F.pos[1] < -10) { this.flying.splice(i, 1); this.impact(F, hitAt || F.pos); }
     }
+    this.updateStakes(dt);
     for (let i = this.debris.length - 1; i >= 0; i--) {
       const b = this.debris[i]; b.t += dt; if (b.t > b.life) { this.debris.splice(i, 1); continue; }
       b.vy -= 18 * dt; const nx = b.x + b.vx * dt, ny = b.y + b.vy * dt, nz = b.z + b.vz * dt;
@@ -9197,6 +9300,7 @@ const TK = {
   },
   // ---------- отрисовка ----------
   drawTree(batch, cam, T) {
+    if (T.stakes) { this.drawBundle(batch, cam, T); return; }
     const l = World.light(Math.floor(T.pos[0]), Math.floor(T.pos[1]) + 8, Math.floor(T.pos[2])), sky = Math.max(0.75, (l >> 4) / 15), blk = (l & 15) / 15;
     // базис поворота один раз на дерево
     const ex = this.rot(T, [1, 0, 0]), ey = this.rot(T, [0, 1, 0]), ez = this.rot(T, [0, 0, 1]);
@@ -9209,13 +9313,15 @@ const TK = {
     if (this.held) this.drawTree(batch, cam, this.held);
     for (const T of this.remote.values()) this.drawTree(batch, cam, T);
     for (const F of this.flying) this.drawTree(batch, cam, F);
+    for (const k of this.stakes) this.drawStake(batch, cam, k.p, k.dir, k.fade);
     for (const b of this.debris) {
       const s = b.s * Math.min(1, (b.life - b.t) / 0.5 + 0.2), x0 = b.x - cam.x, y0 = b.y - cam.y, z0 = b.z - cam.z;
       const l = World.light(Math.floor(b.x), Math.floor(b.y), Math.floor(b.z));
+      if (b.red) { const BL = TILE.blood; avBox(batch, -s / 2, -s / 2, -s / 2, s / 2, s / 2, s / 2, [BL, BL, BL, BL, BL, BL], (x, y, z) => [x0 + x, y0 + y, z0 + z], (l >> 4) / 15, (l & 15) / 15); continue; }   // брызги крови
       batchBlock(batch, b.id, (x, y, z) => [x0 + (x - 0.5) * s, y0 + (y - 0.5) * s, z0 + (z - 0.5) * s], (l >> 4) / 15, (l & 15) / 15);
     }
   },
-  clear() { this.heldP = null; this.carried = null; this.pflight = null; this.held = null; this.remote.clear(); this.flying.length = 0; this.debris.length = 0; this.openT = 0; this.lastAim = null; }
+  clear() { this.stakes.length = 0; this.heldP = null; this.carried = null; this.pflight = null; this.held = null; this.remote.clear(); this.flying.length = 0; this.debris.length = 0; this.openT = 0; this.lastAim = null; }
 };
 
 </script>
