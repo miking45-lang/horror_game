@@ -85,6 +85,7 @@ const Net = {
       .on('broadcast', { event: 'fxs' }, m => this.onFxs(m.payload))
       .on('broadcast', { event: 'cry' }, m => this.onCry(m.payload))
       .on('broadcast', { event: 'cmd' }, m => this.onCmd(m.payload))
+      .on('broadcast', { event: 'chat' }, m => this.onChat(m.payload))
       .on('presence', { event: 'sync' }, () => { try { this.nPres = this.ch ? Object.keys(this.ch.presenceState()).length : 1; } catch (e) { } })
       .on('presence', { event: 'join' }, m => this.onPresJoin(m.newPresences || []))
       .on('presence', { event: 'leave' }, m => this.onPresLeave(m.leftPresences || []));
@@ -280,6 +281,7 @@ const Net = {
   },
   stop() {
     clearInterval(this.hbTimer); this.hbTimer = null;
+    { const box = $('chatLog'); if (box) box.innerHTML = ''; }
     if (this.role === 'host' && this.sb && this.code) {
       this.sb.from('rooms').delete().eq('code', this.code).eq('host', this.uid).then(() => { }, () => { });
     }
@@ -297,15 +299,15 @@ const Net = {
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
   },
   // ---------- команды владельца (в чужом мире) ----------
-  cmdHelp: 'Команды: /vanish [on|off] — невидимость, /help — список. NumPad 5 — выбор облика',
+  cmdHelp: 'T — чат. Команды: /vanish [on|off] — невидимость, /help — список. NumPad 5 — выбор облика',
   canCmd() { return this.role === 'guest' && this.guestOwner; },
   cmdOpen(prefix) {
-    if (!this.canCmd() || this.cmdOn) return;
-    this.cmdOn = true; Input.keys = {}; Input.mouse = [false, false, false];
+    if (!this.chatOk() || this.cmdOn) return;
+    this.cmdOn = true; Input.keys = {}; Input.mouse = [false, false, false]; document.body.classList.add('chatting');
     let el = $('cmdBar');
     if (!el) {
       el = document.createElement('div'); el.id = 'cmdBar';
-      el.innerHTML = '<input id="cmdIn" autocomplete="off" spellcheck="false" maxlength="80" placeholder="/vanish">';
+      el.innerHTML = '<input id="cmdIn" autocomplete="off" spellcheck="false" maxlength="120" placeholder="Сообщение в чат">';
       document.body.appendChild(el);
       const i = el.firstChild;
       i.addEventListener('keydown', e => {
@@ -321,18 +323,48 @@ const Net = {
     setTimeout(() => i.focus(), 0);
   },
   cmdClose(quiet) {
-    this.cmdOn = false;
+    this.cmdOn = false; document.body.classList.remove('chatting');
     const el = $('cmdBar'); if (el) { el.style.display = 'none'; const i = $('cmdIn'); if (i) i.blur(); }
     if (!quiet) Game.captureMouse(true);
   },
   runCmd(line) {
-    line = (line || '').trim().replace(/^\//, '');
+    line = (line || '').trim();
     if (!line) return;
-    if (!this.canCmd()) { UI.toast('Команды доступны владельцу в чужом мире'); return; }
+    // команды существуют только для владельца; у остальных строка с «/» — обычное сообщение в чат
+    if (line[0] !== '/' || !this.canCmd()) { this.chatSend(line); return; }
+    line = line.slice(1);
+    if (!line) return;
     const parts = line.split(/\s+/), n = parts[0].toLowerCase(), a = (parts[1] || '').toLowerCase();
     if (n === 'vanish') this.setVanish(a === 'on' ? true : a === 'off' ? false : !this.vanish);
     else if (n === 'help') UI.toast(this.cmdHelp);
     else UI.toast('Неизвестная команда: /' + n + '. ' + this.cmdHelp);
+  },
+  // ---------- чат (в сетевой игре: хозяин и гости) ----------
+  chatOk() { return !!(this.role && this.ch); },
+  chatT: 0,
+  chatSend(text) {
+    if (!this.chatOk()) return;
+    text = String(text).replace(/\s+/g, ' ').trim().slice(0, 120); if (!text) return;
+    const now = performance.now(); if (now - this.chatT < 600) return;
+    this.chatT = now;
+    // в облике существа ник не отправляется вовсе — его не узнать даже из сетевых сообщений
+    const n = this.form === 'creature' ? '' : this.nick();
+    this.send('chat', { u: this.uid, n, t: text });
+    this.chatShow(n, text);
+  },
+  onChat(v) {
+    if (!v || v.u === this.uid || typeof v.t !== 'string') return;
+    this.chatShow(typeof v.n === 'string' ? v.n.slice(0, 16) : '', v.t.slice(0, 120));
+  },
+  chatShow(n, t) {
+    let box = $('chatLog');
+    if (!box) { box = document.createElement('div'); box.id = 'chatLog'; document.body.appendChild(box); }
+    const row = document.createElement('div'); row.className = 'chatRow';
+    if (n) { const b = document.createElement('b'); b.textContent = n + ': '; row.appendChild(b); }
+    row.appendChild(document.createTextNode(t));   // только текст, без HTML
+    box.appendChild(row);
+    while (box.children.length > 8) box.removeChild(box.firstChild);
+    setTimeout(() => row.classList.add('old'), 10000);
   },
   setVanish(on) {
     if (on === this.vanish) { UI.toast(on ? 'Вы уже невидимы' : 'Вы уже видимы'); return; }
