@@ -299,7 +299,7 @@ const Net = {
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
   },
   // ---------- команды владельца (в чужом мире) ----------
-  cmdHelp: 'T — чат. Команды: /vanish [on|off] — невидимость, /help — список. NumPad 5 — выбор облика',
+  cmdHelp: 'T — чат. Команды: /vanish [on|off] — невидимость, /tp <ник> или /tp x y z — телепорт, /help — список. NumPad 5 — выбор облика',
   canCmd() { return this.role === 'guest' && this.guestOwner; },
   cmdOpen(prefix) {
     if (!this.chatOk() || this.cmdOn) return;
@@ -320,7 +320,8 @@ const Net = {
     el.style.display = 'block';
     const i = $('cmdIn'); i.value = prefix || '';
     if (document.pointerLockElement) document.exitPointerLock();
-    setTimeout(() => i.focus(), 0);
+    // курсор сразу в поле ввода (повторяем: после выхода из захвата мыши браузер иногда сбрасывает фокус)
+    i.focus(); setTimeout(() => i.focus(), 0); setTimeout(() => { if (this.cmdOn) i.focus(); }, 80);
   },
   cmdClose(quiet) {
     this.cmdOn = false; document.body.classList.remove('chatting');
@@ -336,6 +337,7 @@ const Net = {
     if (!line) return;
     const parts = line.split(/\s+/), n = parts[0].toLowerCase(), a = (parts[1] || '').toLowerCase();
     if (n === 'vanish') this.setVanish(a === 'on' ? true : a === 'off' ? false : !this.vanish);
+    else if (n === 'tp') this.teleport(parts.slice(1));
     else if (n === 'help') UI.toast(this.cmdHelp);
     else UI.toast('Неизвестная команда: /' + n + '. ' + this.cmdHelp);
   },
@@ -365,6 +367,27 @@ const Net = {
     box.appendChild(row);
     while (box.children.length > 8) box.removeChild(box.firstChild);
     setTimeout(() => row.classList.add('old'), 10000);
+  },
+  // /tp <ник> — к игроку в этом мире, /tp x y z — по координатам (только владелец)
+  teleport(args) {
+    const p = Player;
+    if (args.length >= 3 && args.slice(0, 3).every(a => /^-?\d+(\.\d+)?$/.test(a))) {
+      const [x, y, z] = args.slice(0, 3).map(Number);
+      if (y < 1 || y > WH + 20) { UI.toast('Высота должна быть от 1 до ' + (WH + 20)); return; }
+      p.x = x + 0.5; p.y = y; p.z = z + 0.5; p.vx = p.vy = p.vz = 0; p.fallDist = 0;
+      UI.toast('Телепорт: ' + Math.round(x) + ' ' + Math.round(y) + ' ' + Math.round(z)); return;
+    }
+    const name = args.join(' ').trim().toLowerCase();
+    if (!name) { UI.toast('Использование: /tp <ник> или /tp x y z'); return; }
+    let best = null;
+    for (const q of this.peers.values()) {
+      const n = (q.n || '').toLowerCase(); if (!n) continue;
+      if (n === name) { best = q; break; }
+      if (!best && n.includes(name)) best = q;   // можно часть ника
+    }
+    if (!best) { UI.toast('Игрок «' + args.join(' ') + '» не найден в этом мире'); return; }
+    p.x = best.x; p.y = best.y + 0.01; p.z = best.z; p.vx = p.vy = p.vz = 0; p.fallDist = 0;
+    UI.toast('Телепорт к игроку ' + best.n);
   },
   setVanish(on) {
     if (on === this.vanish) { UI.toast(on ? 'Вы уже невидимы' : 'Вы уже видимы'); return; }
