@@ -224,6 +224,7 @@ const Game = {
       if (c === 'Numpad5' && Net.canCmd()) { e.preventDefault(); Menus.show('morph'); this.releaseMouse(); return; }
       if ((c === 'Numpad4' || c === 'Numpad6') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.setStatic(c === 'Numpad4'); return; }
       if (c === 'Enter' && TK.held) { e.preventDefault(); TK.toStakes(); return; }   // дерево в руке → колья
+      if (c === 'Enter' && TK.heldP) { e.preventDefault(); if (!e.repeat) TK.burstPlayer(); return; }   // игрок в руке → разорвать
       if (c === 'Numpad3' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerMaw(); return; }
       if (c === 'Numpad0' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerKill(); return; }
       if (c === 'Numpad9' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerScreamer(); return; }

@@ -17,7 +17,6 @@ const TK = {
   mouseDown(btn) {
     if (this.heldP) {
       if (btn === 0) this.releasePlayer(true);
-      else if (btn === 1) this.burstPlayer();   // колёсико — разорвать
       return true;
     }
     if (this.held) { if (btn === 0) this.release(true); return true; }
