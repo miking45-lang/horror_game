@@ -1,6 +1,8 @@
 -- Время мира ставит база, а не компьютер хозяина; список миров строит функция на сервере.
 -- Выполните в SQL Editor целиком.
 
+create extension if not exists pgcrypto with schema extensions;
+
 create or replace function public.touch_room()
 returns trigger language plpgsql as $$
 begin
@@ -25,3 +27,6 @@ as $$
 $$;
 
 grant execute on function public.list_rooms() to authenticated;
+
+-- обновить кэш схемы API, чтобы функция стала видна сразу
+notify pgrst, 'reload schema';
