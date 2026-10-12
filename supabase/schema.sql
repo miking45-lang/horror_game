@@ -1,8 +1,10 @@
 -- ============================================================
 --  Туманный Край: таблица открытых миров для сетевой игры.
 --  Выполните целиком в Supabase: SQL Editor → New query → Run.
---  Перед запуском замените Ertyunjoki@hotmail.com на почту владельца игры.
+--  Почта владельца хранится только в виде SHA-256 (поле owner_hash ниже). Замените хэш, если меняется владелец.
 -- ============================================================
+
+create extension if not exists pgcrypto with schema extensions;
 
 create table if not exists public.rooms (
   code        text primary key,
@@ -30,7 +32,7 @@ create policy "host delete" on public.rooms for delete
 
 -- список миров видит только владелец игры (по почте в токене входа)
 create policy "owner list" on public.rooms for select
-  using (lower(auth.jwt() ->> 'email') = lower('Ertyunjoki@hotmail.com'));
+  using (encode(extensions.digest(lower(auth.jwt() ->> 'email'), 'sha256'), 'hex') = '2fe36cde0e5a09c7acc928b58b014dcbe94b014cf64526b086b43f967d274136');
 
 -- вход по коду: только владелец игры может получить строку мира по коду
 create or replace function public.get_room(p_code text)
@@ -41,7 +43,7 @@ set search_path = public
 as $$
   select * from public.rooms
   where code = upper(p_code)
-    and lower(auth.jwt() ->> 'email') = lower('Ertyunjoki@hotmail.com')
+    and encode(extensions.digest(lower(auth.jwt() ->> 'email'), 'sha256'), 'hex') = '2fe36cde0e5a09c7acc928b58b014dcbe94b014cf64526b086b43f967d274136'
   limit 1;
 $$;
 

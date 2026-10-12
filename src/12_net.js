@@ -7,7 +7,7 @@
 const NET_CONFIG = {
   url: 'https://kqomsznvqwnntnivjafk.supabase.co',   // Project URL
   anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtxb21zem52cXdubnRuaXZqYWZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3NjUxOTAsImV4cCI6MjEwNzM0MTE5MH0.esFiNYcKJ9dNtXNPfcPFlkueq5FsYwvRnn3uxGGRLJM',   // публичный anon-ключ (Settings → API → Legacy)
-  ownerEmail: 'Ertyunjoki@hotmail.com'   // почта аккаунта владельца
+  ownerHash: '2fe36cde0e5a09c7acc928b58b014dcbe94b014cf64526b086b43f967d274136'   // SHA-256 почты владельца (в нижнем регистре); сама почта в коде не хранится
 };
 const NET_SDK = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
 const NET_SNAP_CHUNK = 100000;   // снимок мира отправляется кусками, чтобы не упереться в лимит сообщения
@@ -51,11 +51,16 @@ const Net = {
     this.loading.catch(e => { this.err = e.message; this.loading = null; });
     return this.loading;
   },
+  // SHA-256 строки в hex (почта владельца в браузере хранится только в виде хэша)
+  async sha256Hex(str) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  },
   async setUser() {
     const { data } = await this.sb.auth.getSession();
-    const u = data.session ? data.session.user : null, own = (this.cfg().ownerEmail || '').toLowerCase();
+    const u = data.session ? data.session.user : null, own = (this.cfg().ownerHash || '').toLowerCase();
     this.uid = u ? u.id : null;
-    this.isOwner = !!(u && u.email && own && u.email.toLowerCase() === own);
+    this.isOwner = !!(u && u.email && own && await this.sha256Hex(u.email.toLowerCase()) === own);
   },
   // при запуске игры: если владелец уже входил в этом браузере — показать его кнопку
   boot() { if (this.enabled()) this.load().then(() => { if (Menus.cur === 'title') Menus.show('title'); }).catch(() => { }); },
