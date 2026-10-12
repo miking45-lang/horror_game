@@ -724,7 +724,8 @@ Object.assign(Ents, {
     tube([P(tor, 0, 0.92, 0), P(nk, 0, 0.12, 0), P(nk, 0, 0.3, 0)], [0.07, 0.042, 0.05], { sub: 3 });
     // ---- голова: череп, обтянутый кожей ----
     const tilt = Math.sin(t * 0.4) * 0.16 + L.twitchV * (1 - (L.A || 0)), nod = Math.sin(t * 0.23) * 0.05;
-    const hr = mul(mul(nk, T(0, 0.26, 0)), mul(RZ(tilt * (1 - A) + (S > 0 && L.snapT < 0.6 ? Math.sin(t * 60) * 0.05 : 0)), RX(-0.12 + nod * (1 - A) - 1.28 * S)));
+    // L.hy / L.hp / L.hroll — поворот головы отдельно от корпуса (владелец в облике существа)
+    const hr = mul(mul(mul(nk, T(0, 0.26, 0)), RY(L.hy || 0)), mul(RZ(tilt * (1 - A) + (L.hroll || 0) + (S > 0 && L.snapT < 0.6 ? Math.sin(t * 60) * 0.05 : 0)), RX(-0.12 + nod * (1 - A) - 1.28 * S + (L.hp || 0) * 0.9)));
     const jaw = 0.006 + (Math.sin(t * 0.55) + 1) * 0.014;
     headMesh(body, eyes, hr, sky, paleBlk, jaw);
     if (L.gp) grinMesh(eyes, hr, L);

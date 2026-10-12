@@ -371,8 +371,26 @@ const Net = {
   // модель существа на месте такого игрока (для отрисовки)
   morphMutant() {
     const q = this.creaturePeer(); if (!q) return null;
-    const L = q.L || (q.L = { active: true, day: false, A: 0, S: 0, snapT: 0, twitchV: 0, gp: 0, phase: 0, t: Math.random() * 100 });
-    L.x = q.cx; L.y = q.cy; L.z = q.cz; L.yaw = q.cya + Math.PI; L.walk = q.walk; L.wph = q.wph; L.hs = q.hs || 1;
+    const look = q.cya + Math.PI, wrap = a => ((a + Math.PI) % PI2 + PI2) % PI2 - Math.PI, now = performance.now();
+    const L = q.L || (q.L = { active: true, day: false, A: 0, S: 0, snapT: 0, twitchV: 0, gp: 0, phase: 0, t: Math.random() * 100,
+      by: look, hy: 0, hp: 0, hyT: 0, hpT: 0, hT: 0, hroll: 0, last: now });
+    const dt = Math.min(0.1, (now - L.last) / 1000); L.last = now; L.t += dt;
+    // корпус стоит на месте и разворачивается, только когда существо идёт (вперёд, назад, вбок)
+    if (q.walk > 0.15) L.by += wrap(look - L.by) * Math.min(1, dt * 7 * q.walk);
+    // голова сама крутится за взглядом — рывками, с перехлёстом, почти задом наперёд
+    const rel = clamp(wrap(look - L.by), -2.7, 2.7), pt = clamp(-(q.pi || 0), -1.2, 1.2);
+    L.hT -= dt;
+    if (L.hT <= 0) {
+      L.hT = 0.05 + Math.random() * 0.18;
+      const k = 0.5 + Math.random() * 0.7;
+      L.hyT = L.hy + (rel - L.hy) * k; L.hpT = L.hp + (pt - L.hp) * k;
+    }
+    const f = 1 - Math.exp(-dt * 30);
+    L.hy += (L.hyT - L.hy) * f; L.hp += (L.hpT - L.hp) * f;
+    // чем сильнее голова вывернута, тем сильнее она заваливается набок и дёргается
+    const tw = Math.min(1, Math.abs(L.hy) / 1.5);
+    L.hroll = Math.sign(L.hy) * tw * 0.5 + (Math.random() - 0.5) * 0.06 * (0.3 + tw);
+    L.x = q.cx; L.y = q.cy; L.z = q.cz; L.yaw = L.by; L.walk = q.walk; L.wph = q.wph; L.hs = q.hs || 1;
     return L;
   },
   onBye(v) { if (!v || v.u === this.uid) return; this.peers.delete(v.u); this.dropTag(v.u); },
