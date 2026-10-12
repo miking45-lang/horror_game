@@ -329,7 +329,7 @@ const Net = {
     if (on) this.send('bye', { u: this.uid }); else { this.lastSent = ''; this.sendT = 0; }
     UI.toast(on ? 'Невидимость включена: игроки вас не видят' : 'Невидимость выключена: игроки вас видят');
   },
-  // звуки существа: NumPad 1 / NumPad 2 в облике существа. Слышат все в мире, громкость и сторона — по расстоянию до существа
+  // звуки существа: NumPad 1 / NumPad 2 в облике существа. Слышат владелец и хозяин мира, громкость не зависит от расстояния
   cryT: [0, 0],
   cry(k = 0) {
     if (!this.canCmd() || this.form !== 'creature') return;
@@ -340,12 +340,9 @@ const Net = {
     const p = Player;
     this.send('cry', { u: this.uid, k, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2) });
   },
-  onCry(v) {
-    if (!v || v.u === this.uid) return;
-    const p = Player, dx = v.x - p.x, dy = v.y - p.y, dz = v.z - p.z, d = Math.hypot(dx, dy, dz);
-    const vol = Math.pow(clamp(1 - d / 48, 0, 1), 1.5); if (vol < 0.02) return;
-    const pan = d > 0.5 ? (dx * Math.cos(p.yaw) - dz * Math.sin(p.yaw)) / d * 0.8 : 0;
-    Sfx.cry(v.k | 0, vol, pan);
+  onCry(v) {   // звук слышит только хозяин мира, на полной громкости, без расстояния
+    if (!v || v.u === this.uid || this.role !== 'host') return;
+    Sfx.cry(v.k | 0, 1, 0);
   },
   // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
   // рост существа: клавиши +/- в облике существа; размер запоминается при переключении облика
