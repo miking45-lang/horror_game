@@ -238,7 +238,7 @@ const Net = {
     if (this.sendT <= 0) {
       this.sendT = 0.15;
       const h = p.held();
-      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '' };
+      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1 };
       const sig = JSON.stringify(v), now = performance.now();
       // двигаемся или стоим — раз в 2 секунды шлём позицию, чтобы нас не сочли пропавшими
       if (!this.vanish && (sig !== this.lastSent || now - this.lastSentT > 2000)) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
@@ -280,7 +280,7 @@ const Net = {
     this.snapWait = null; this.evQueue = [];
     if (this.fxOn) this.fxClear();
     if (this.cmdOn) this.cmdClose(true);
-    this.vanish = false; this.form = 'player';
+    this.vanish = false; this.form = 'player'; Player.hs = 1;
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
   },
   // ---------- команды владельца (в чужом мире) ----------
@@ -329,9 +329,19 @@ const Net = {
     UI.toast(on ? 'Невидимость включена: игроки вас не видят' : 'Невидимость выключена: игроки вас видят');
   },
   // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
+  // рост существа: клавиши +/- в облике существа; размер запоминается при переключении облика
+  cScale: 1,
+  setScale(d) {
+    if (!this.canCmd() || this.form !== 'creature') return;
+    this.cScale = Math.round(clamp(this.cScale + d, 0.5, 2.5) * 10) / 10;
+    Player.hs = this.cScale;
+    this.lastSent = ''; this.sendT = 0;
+    UI.toast('Рост существа: ' + Math.round(this.cScale * 100) + '%');
+  },
   setForm(f) {
     if (!this.canCmd() || !['creature', 'black', 'player'].includes(f)) return;
     this.form = f;
+    Player.hs = f === 'creature' ? this.cScale : 1;
     if (this.vanish) { this.vanish = false; if (this.ch) this.ch.track({ u: this.uid, n: this.nick(), o: 1, h: 0, v: 0 }); }
     this.lastSent = ''; this.sendT = 0;
     UI.toast(f === 'creature' ? 'Вы — основное существо: ник скрыт, события существа у игрока остановлены'
@@ -347,7 +357,7 @@ const Net = {
   morphMutant() {
     const q = this.creaturePeer(); if (!q) return null;
     const L = q.L || (q.L = { active: true, day: false, A: 0, S: 0, snapT: 0, twitchV: 0, gp: 0, phase: 0, t: Math.random() * 100 });
-    L.x = q.cx; L.y = q.cy; L.z = q.cz; L.yaw = q.cya + Math.PI; L.walk = q.walk; L.wph = q.wph;
+    L.x = q.cx; L.y = q.cy; L.z = q.cz; L.yaw = q.cya + Math.PI; L.walk = q.walk; L.wph = q.wph; L.hs = q.hs || 1;
     return L;
   },
   onBye(v) { if (!v || v.u === this.uid) return; this.peers.delete(v.u); this.dropTag(v.u); },

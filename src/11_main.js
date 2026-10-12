@@ -219,6 +219,9 @@ const Game = {
         return;
       }
       if (c === 'Numpad5' && Net.canCmd()) { e.preventDefault(); Menus.show('morph'); this.releaseMouse(); return; }
+      if (['NumpadAdd', 'Equal', 'NumpadSubtract', 'Minus'].includes(c) && Net.canCmd() && Net.form === 'creature') {
+        e.preventDefault(); Net.setScale(c === 'NumpadAdd' || c === 'Equal' ? 0.1 : -0.1); return;
+      }
       if ((c === 'KeyT' || c === 'Slash') && Net.canCmd()) { e.preventDefault(); Net.cmdOpen(c === 'Slash' ? '/' : ''); return; }
       const wasDown = Input.keys[c];
       Input.keys[c] = true;
@@ -437,7 +440,7 @@ const Game = {
     this.curFov += (targetFov - this.curFov) * (1 - Math.exp(-10 * dt));
     const ph = p.bob * 1.7, ba = this.settings.bob ? p.bobAmt : 0;
     const cam = {
-      x: p.x + Math.cos(p.yaw) * Math.sin(ph) * 0.045 * ba, y: p.y + EYE - (p.sneaking ? 0.1 : 0) + (-Math.abs(Math.cos(ph)) * 0.07 + 0.035) * ba,
+      x: p.x + Math.cos(p.yaw) * Math.sin(ph) * 0.045 * ba, y: p.y + EYE * (p.hs || 1) - (p.sneaking ? 0.1 : 0) + (-Math.abs(Math.cos(ph)) * 0.07 + 0.035) * ba,
       z: p.z - Math.sin(p.yaw) * Math.sin(ph) * 0.045 * ba, yaw: p.yaw, pitch: p.pitch, fov: this.curFov,
       roll: Math.sin(ph) * 0.006 * ba + (p.hurtT > 0 ? Math.sin(p.hurtT * 30) * 0.03 : 0)
     };

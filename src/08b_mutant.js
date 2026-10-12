@@ -668,7 +668,8 @@ Object.assign(Ents, {
     const bd = TILE.mut_body, claw = TILE.claw;
     const A = L.A || 0, S = L.S || 0, hipY = lerp(1.9, 1.1, A), mix = (a, b) => a + (b - a) * A;
     const sway = Math.sin(t * 0.45) * 0.018 * (1 - A);
-    const M0 = mul(mul(T(L.x - cam.x, L.y - cam.y, L.z - cam.z), RY(L.yaw)), RZ(sway));
+    const hs = L.hs || 1, SC = m4scale(m4(), hs, hs, hs);
+    const M0 = mul(mul(mul(T(L.x - cam.x, L.y - cam.y, L.z - cam.z), RY(L.yaw)), RZ(sway)), SC);
     const right = D(M0, 1, 0, 0), fwd = D(M0, 0, 0, 1), up = D(M0, 0, 1, 0);
     const tube = (pts, rad, o = {}) => tubeMesh(body, pts, rad, Object.assign({ seg: 8, tile: bd, ref: right, ref2: fwd, sky, blk }, o));
     const blob = (M, c, r, o = {}) => blobMesh(o.target || body, M, c, r, Object.assign({ tile: bd, sky, blk }, o));
