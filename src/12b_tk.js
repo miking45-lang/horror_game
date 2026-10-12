@@ -17,9 +17,10 @@ const TK = {
   mouseDown(btn) {
     if (this.heldP) {
       if (btn === 0) this.releasePlayer(true);
+      else if (btn === 1) this.burstPlayer();   // нажатие на колёсико — разорвать
       return true;
     }
-    if (this.held) { if (btn === 0) this.release(true); return true; }
+    if (this.held) { if (btn === 0) this.release(true); else if (btn === 1) this.toStakes(); return true; }   // нажатие на колёсико — дерево в колья
     if (btn === 2 && this.canUse() && this.grabPlayer()) return true;
     if (btn === 0 && this.canUse() && this.trySlash()) return true;
     if (btn !== 2 || !this.canUse()) return false;
