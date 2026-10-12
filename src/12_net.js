@@ -78,6 +78,7 @@ const Net = {
       .on('broadcast', { event: 'bye' }, m => this.onBye(m.payload))
       .on('broadcast', { event: 'fx' }, m => this.onFx(m.payload))
       .on('broadcast', { event: 'fxs' }, m => this.onFxs(m.payload))
+      .on('broadcast', { event: 'cry' }, m => this.onCry(m.payload))
       .on('presence', { event: 'sync' }, () => { try { this.nPres = this.ch ? Object.keys(this.ch.presenceState()).length : 1; } catch (e) { } })
       .on('presence', { event: 'join' }, m => this.onPresJoin(m.newPresences || []))
       .on('presence', { event: 'leave' }, m => this.onPresLeave(m.leftPresences || []));
@@ -327,6 +328,24 @@ const Net = {
     if (this.ch) this.ch.track({ u: this.uid, n: this.nick(), o: 1, h: 0, v: on ? 1 : 0 });
     if (on) this.send('bye', { u: this.uid }); else { this.lastSent = ''; this.sendT = 0; }
     UI.toast(on ? 'Невидимость включена: игроки вас не видят' : 'Невидимость выключена: игроки вас видят');
+  },
+  // звук существа: NumPad 1 в облике существа. Слышат все в мире, громкость и сторона — по расстоянию до существа
+  cryT: 0,
+  cry() {
+    if (!this.canCmd() || this.form !== 'creature') return;
+    const now = performance.now(); if (now - this.cryT < 1000) return;
+    this.cryT = now;
+    if (Sfx.ctx && !Sfx.cryBuf) Sfx.loadCry();
+    Sfx.cry(1, 0);
+    const p = Player;
+    this.send('cry', { u: this.uid, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2) });
+  },
+  onCry(v) {
+    if (!v || v.u === this.uid) return;
+    const p = Player, dx = v.x - p.x, dy = v.y - p.y, dz = v.z - p.z, d = Math.hypot(dx, dy, dz);
+    const vol = Math.pow(clamp(1 - d / 48, 0, 1), 1.5); if (vol < 0.02) return;
+    const pan = d > 0.5 ? (dx * Math.cos(p.yaw) - dz * Math.sin(p.yaw)) / d * 0.8 : 0;
+    Sfx.cry(vol, pan);
   },
   // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
   // рост существа: клавиши +/- в облике существа; размер запоминается при переключении облика
