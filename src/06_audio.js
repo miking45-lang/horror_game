@@ -514,7 +514,7 @@ const Sfx = {
     } catch (e) { }
   },
   // звуки существа (NumPad 1, NumPad 2 — когда владелец в облике существа); vol и pan — по расстоянию и направлению
-  cryBufs: [], CRY_SRC: ['CRY_B64', 'CRY2_B64'],
+  cryBufs: [], CRY_SRC: ['CRY_B64', 'CRY2_B64', 'CRY3_B64'],
   cryReady(k = 0) { return !!(this.on && this.ctx && this.cryBufs[k]); },
   cry(k = 0, vol = 1, pan = 0) {
     if (!this.cryReady(k)) return 0;
@@ -528,7 +528,8 @@ const Sfx = {
     this._cr = true;
     this.CRY_SRC.forEach((name, k) => {
       try {
-        const b64 = window[name] !== undefined ? window[name] : (name === 'CRY_B64' && typeof CRY_B64 !== 'undefined' ? CRY_B64 : name === 'CRY2_B64' && typeof CRY2_B64 !== 'undefined' ? CRY2_B64 : null);
+        const all = { CRY_B64: typeof CRY_B64 !== 'undefined' ? CRY_B64 : null, CRY2_B64: typeof CRY2_B64 !== 'undefined' ? CRY2_B64 : null, CRY3_B64: typeof CRY3_B64 !== 'undefined' ? CRY3_B64 : null };
+        const b64 = all[name];
         if (!b64) return;
         const bin = atob(b64), u = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);

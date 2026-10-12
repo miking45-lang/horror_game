@@ -220,6 +220,7 @@ const Game = {
       }
       if (c === 'Numpad5' && Net.canCmd()) { e.preventDefault(); Menus.show('morph'); this.releaseMouse(); return; }
       if ((c === 'Numpad4' || c === 'Numpad6') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.setStatic(c === 'Numpad4'); return; }
+      if (c === 'Numpad3' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerMaw(); return; }
       if (c === 'Numpad0' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerKill(); return; }
       if (c === 'Numpad9' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerScreamer(); return; }
       if (c === 'Numpad7' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerGlitch(); return; }
@@ -460,15 +461,16 @@ const Game = {
       cam.x += d[0] * s * t; cam.y += d[1] * s * t; cam.z += d[2] * s * t; cam.roll = 0;
       if (this.view === 2) { cam.yaw = p.yaw + Math.PI; cam.pitch = -p.pitch; }
     }
-    if (Ents.killS && Ents.killS.cam && !p.dead) Object.assign(cam, Ents.killS.cam);   // «расправа»: вид со стороны
-    { const kc = !!(Ents.killS && Ents.killS.cam && !p.dead), cr = $('cross'); if (cr && cr._kc !== kc) { cr._kc = kc; cr.style.display = kc ? 'none' : ''; } }
+    const sceneCam = (Ents.killS && Ents.killS.cam) || (Ents.mawS && Ents.mawS.ph >= 3 && Ents.mawS.cam) || null;
+    if (sceneCam && !p.dead) Object.assign(cam, sceneCam);   // сцены существа: вид со стороны
+    { const kc = !!(sceneCam && !p.dead) || !!Ents.mawS, cr = $('cross'); if (cr && cr._kc !== kc) { cr._kc = kc; cr.style.display = kc ? 'none' : ''; } }
     Net.selfStep(dt);
     const tg = this.buildTargetGfx(cam);
     const fig = Ents.buildFigure(this.batches.fig, cam);
     const scene = {
       ents: Ents.build(this.batches.ents, cam), figure: fig, figureColor: [0.022, 0.02, 0.026, 1],
-      crack: tg.crack, outline: tg.outline, hand: (UI.hideHud || p.dead || this.view || (Ents.killS && Ents.killS.cam)) ? null : this.buildHand(),
-      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Ents.killL || Net.morphMutant() || Net.selfMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
+      crack: tg.crack, outline: tg.outline, hand: (UI.hideHud || p.dead || this.view || sceneCam || Ents.mawS) ? null : this.buildHand(),
+      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Ents.killL || Ents.mawL || Net.morphMutant() || Net.selfMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
       ghost: Ents.buildMutant(this.batches.ghost, this.batches.ghostEyes, cam, Ents.ghost), ghostEyes: this.batches.ghostEyes
     };
     this._tvT = (this._tvT || 0) - dt;

@@ -90,7 +90,8 @@ const Ents = {
     }
     // наблюдатель (гость в чужом мире): свои события не запускаются, повторяются события хозяина
     if (typeof Net !== 'undefined' && Net.observer()) { this.fig.active = false; this.ghost.active = false; this.updateDeep(dt); Net.fxStep(dt); return; }
-    if (this.killS) { this.updateKill(dt); return; }   // «расправа» (NumPad 0) — всё остальное ждёт
+    if (this.killS) { this.updateKill(dt); return; }
+    if (this.mawS) { this.updateMaw(dt); return; }   // «из экрана» (NumPad 3)   // «расправа» (NumPad 0) — всё остальное ждёт
     if (this.scrS) this.updateScreamer(dt);
     this.updateFigure(dt);
     // владелец в облике существа: события существа у хозяина остановлены, помехи — от близости владельца

@@ -449,6 +449,15 @@ const Net = {
     this.send('cmd', { u: this.uid, c: 'scream' });
     UI.toast('Скример отправлен хозяину мира');
   },
+  // NumPad 3 в облике существа: «из экрана» — лицо вплотную, рык, откусывает голову хозяину мира
+  mT: 0,
+  triggerMaw() {
+    if (!this.canCmd() || this.form !== 'creature') return;
+    const now = performance.now(); if (now - this.mT < 15000) { UI.toast('Подождите немного'); return; }
+    this.mT = now;
+    this.send('cmd', { u: this.uid, c: 'maw' });
+    UI.toast('«Из экрана» отправлено хозяину мира');
+  },
   // NumPad 0 в облике существа: «расправа» над хозяином мира
   kT: 0,
   triggerKill() {
@@ -465,6 +474,7 @@ const Net = {
     if (v.c === 'glitch') Ents.forceGlitch();
     else if (v.c === 'scream') Ents.forceScreamer();
     else if (v.c === 'kill') Ents.forceKill(v);
+    else if (v.c === 'maw') Ents.forceMaw();
   },
   // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
   // рост существа: клавиши +/- в облике существа; размер запоминается при переключении облика
@@ -630,6 +640,7 @@ const Net = {
     }
     // F5: свой персонаж (за существо — отдельная модель, см. selfMutant)
     if (Ents.killS) Ents.drawKill(batch, cam);   // игрок в руках существа
+    else if (Ents.mawS) Ents.drawMaw(batch, cam);
     else if (Game.view && this.form !== 'creature' && !Player.dead) this.drawAv(batch, cam, this.selfQ());
   },
   drawAv(batch, cam, q) {

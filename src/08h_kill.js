@@ -7,7 +7,7 @@ Object.assign(Ents, {
   killS: null, killL: null,
   forceKill(from) {
     const p = Player;
-    if (this.killS || p.dead || Game.state !== 'play') return false;
+    if (this.killS || this.mawS || p.dead || Game.state !== 'play') return false;
     if (this.stopMutantEvents) this.stopMutantEvents();
     if (UI.gui) UI.closeScreen();
     // откуда бежит: с места владельца-существа (если недалеко), иначе — из тумана перед игроком
