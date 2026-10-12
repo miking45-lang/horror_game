@@ -5,8 +5,8 @@
 // ============================================================
 // Настройки проекта Supabase. Пока url или anonKey пусты, сетевые функции выключены.
 const NET_CONFIG = {
-  url: 'https://sjlmrsqgzxzmdjajtdig.supabase.co',   // Project URL
-  anonKey: 'sb_publishable_Pdc898xP31yC3hklsP2FHA_cn1Z9UPU',   // публичный ключ (Settings → API)
+  url: 'https://kqomsznvqwnntnivjafk.supabase.co',   // Project URL
+  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtxb21zem52cXdubnRuaXZqYWZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3NjUxOTAsImV4cCI6MjEwNzM0MTE5MH0.esFiNYcKJ9dNtXNPfcPFlkueq5FsYwvRnn3uxGGRLJM',   // публичный anon-ключ (Settings → API → Legacy)
   ownerEmail: 'Ertyunjoki@hotmail.com'   // почта аккаунта владельца
 };
 const NET_SDK = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
