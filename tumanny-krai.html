@@ -6791,9 +6791,30 @@ Object.assign(Ents, {
     }
     // ---- со стороны: взмах руки, туловище падает набок ----
     const L = this.slashL; L.t += dt;
-    const sw = ease(S.pt / 0.45);                                   // взмах за 0,45 с
-    L.yaw = L.by = S.yawMid + S.side * (1.1 - 2.2 * sw);
-    if (!S.cut && sw > 0.5) { S.cut = true; S.cutT = S.pt; try { Sfx.hurt(); } catch (e) { } }
+    // замах (0,6 с): корпус разворачивается назад, рука уходит вверх-назад;
+    // удар (0,18 с): резкий разворот, предплечье проходит поперёк пояса; затем рука по инерции уходит дальше и опускается
+    const TW = 0.6, TS = 0.18, TF = 0.45, tt = S.pt, lerp2 = (a, b, k) => a + (b - a) * k;
+    let yw;
+    if (tt < TW) {
+      const u = ease(tt / TW);
+      yw = lerp2(1.1, 1.65, u);
+      L.aimK = Math.min(1, tt / 0.3); L.aimA = S.wind[0]; L.aimB = S.wind[1]; L.aimOpen = false;
+      L.A = 0.12 * u;                                                // чуть приседает перед ударом
+    } else if (tt < TW + TS) {
+      const u = (tt - TW) / TS, k = u * u;                           // разгон
+      yw = lerp2(1.65, -1.05, k);
+      const ka = Math.min(1, u / 0.4);
+      L.aimK = 1; L.aimA = lerp2(S.wind[0], S.strike[0], ka); L.aimB = lerp2(S.wind[1], S.strike[1], ka); L.aimOpen = true;
+      L.A = 0.12 * (1 - u);
+    } else {
+      const u = ease((tt - TW - TS) / TF);
+      yw = lerp2(-1.05, -1.55, u);
+      L.aimA = S.strike[0]; L.aimB = S.strike[1]; L.A = 0;
+      L.aimK = 1 - clamp((tt - TW - TS - 0.35) / 0.6, 0, 1) * 1;      // рука опускается
+    }
+    const prevSide = (L.yaw - S.yawMid) * S.side;
+    L.yaw = L.by = S.yawMid + S.side * yw;
+    if (!S.cut && tt >= TW && prevSide > 0 && yw <= 0) { S.cut = true; S.cutT = S.pt; Game.flickerPulse = 0.2; try { Sfx.hurt(); Sfx.staticBurst(); } catch (e) { } }
     if (S.cut) {
       const u = clamp((S.pt - S.cutT) / 1.0, 0, 1);
       S.fall = ease(u);
@@ -6810,7 +6831,7 @@ Object.assign(Ents, {
       b.vy -= 14 * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
       const gy = World.topY(Math.floor(b.x), Math.floor(b.z)) + 1.02; if (b.y <= gy) { b.y = gy; b.land = true; }
     }
-    if (S.pt >= 3.4) { this.slashEnd(true); return; }
+    if (S.pt >= 4.0) { this.slashEnd(true); return; }
     // камера сбоку, в профиль к существу и игроку
     const tg = [p.x, p.y + 1.1, p.z], D = 5.5;
     const free = dir => { const n = Math.hypot(dir[0], dir[1], dir[2]); let t = 0.5; for (; t < D; t += 0.1) if (SOLID[World.get(Math.floor(tg[0] + dir[0] / n * t), Math.floor(tg[1] + dir[1] / n * t), Math.floor(tg[2] + dir[2] / n * t))]) break; return Math.min(D, t); };
@@ -6834,7 +6855,10 @@ Object.assign(Ents, {
     L.x = p.x + dx / d * reach; L.z = p.z + dz / d * reach; L.y = p.y; L.hs = hs; L.walk = 0;
     // рука вытянута вправо и вниз — к поясу игрока
     const drop = Math.max(0.3, 2.82 * hs - 0.9), len = 2.35 * hs;
-    L.aimK = 1; L.aimA = 0; L.aimB = Math.atan2(Math.sqrt(Math.max(0.01, len * len - drop * drop)), drop); L.aimOpen = true;
+    // удар: рука вытянута вбок и вниз на уровень пояса игрока; замах: рука вверх и назад
+    S.strike = [0, Math.atan2(Math.sqrt(Math.max(0.01, len * len - drop * drop)), drop)];
+    S.wind = [0.52, 2.52];
+    L.aimK = 0; L.aimA = S.wind[0]; L.aimB = S.wind[1]; L.aimOpen = false;
     // при каком курсе правая рука смотрит на игрока: R = (cos a, −sin a) = направление к игроку
     const tx = p.x - L.x, tz = p.z - L.z;
     S.yawMid = Math.atan2(-tz, tx);
