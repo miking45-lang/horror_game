@@ -104,8 +104,7 @@ const Menus = {
         ${this.btn('Режим: ' + (Game.newMode === 'creative' ? 'Творческий' : 'Выживание'), 'mode')}
         <div class="note">${Game.newMode === 'creative' ? 'Бесконечные блоки, полёт (двойной пробел), мгновенная ломка' : 'Добывай, крафти, береги здоровье. Ночью и в пещерах опасно'}</div>
         ${this.btn(svNew && this.confirmNew ? `Заменить мир в слоте ${ns}?` : `Создать новый мир (слот ${ns})`, 'create', svNew && this.confirmNew ? 'warn' : '')}
-        ${this.btn('Назад', 'title')}</div>
-        ${Net.enabled() ? '<div class="note">' + NET_RULE + '</div>' : ''}`;
+        ${this.btn('Назад', 'title')}</div>`;
     } else if (name === 'net') {
       h = `<div class="mtitle">Игра с другом</div><div class="col">
         <label class="lbl" for="nickIn">Ваш ник</label><input id="nickIn" class="mcin" maxlength="16" autocomplete="off" spellcheck="false">
