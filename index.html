@@ -5581,7 +5581,7 @@ Object.assign(Ents, {
     // L.hy / L.hp / L.hroll — поворот головы отдельно от корпуса (владелец в облике существа)
     const hr = mul(mul(mul(nk, T(0, 0.26, 0)), RY(L.hy || 0)), mul(RZ(tilt * (1 - A) + (L.hroll || 0) + (S > 0 && L.snapT < 0.6 ? Math.sin(t * 60) * 0.05 : 0)), RX(-0.12 + nod * (1 - A) - 1.28 * S + (L.hp || 0) * 0.9)));
     const jaw = 0.006 + (Math.sin(t * 0.55) + 1) * 0.014;
-    { const hc = P(hr, 0, HEAD.cy, 0); L._head = [hc[0] + cam.x, hc[1] + cam.y, hc[2] + cam.z]; }   // где голова (для сцен)
+    { const hc = P(hr, 0, HEAD.cy, 0); L._head = [hc[0] + cam.x, hc[1] + cam.y, hc[2] + cam.z]; L._face = D(hr, 0, 0, 1); }   // где голова и куда смотрит лицо (для сцен)
     headMesh(body, eyes, hr, sky, paleBlk, L.jawOpen !== undefined ? L.jawOpen : jaw);
     if (L.gp) grinMesh(eyes, hr, L);
     return body;
@@ -6686,7 +6686,8 @@ Object.assign(Ents, {
     const L = Net.newPoseL(a);
     L.x = p.x + F[0] * 0.9; L.z = p.z + F[1] * 0.9; L.y = p.y;
     L.yaw = L.by = Math.atan2(p.x - L.x, p.z - L.z);
-    L.A = 1; L.hp = 0.55; L.walk = 0; L.jawOpen = 0.09; L.hs = 1.4;   // склонилось: голова как раз на уровне головы игрока
+    L.A = 1; L.hp = -1.9; L.walk = 0;   // в наклоне лицо смотрит вперёд-вниз, на голову игрока (не в небо)
+    L.jawOpen = 0.09; L.hs = 1.4;   // склонилось: голова как раз на уровне головы игрока
     this.mawL = L;
   },
   mawStep3(dt) {

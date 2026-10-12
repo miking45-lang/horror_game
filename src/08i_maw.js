@@ -52,7 +52,8 @@ Object.assign(Ents, {
     const L = Net.newPoseL(a);
     L.x = p.x + F[0] * 0.9; L.z = p.z + F[1] * 0.9; L.y = p.y;
     L.yaw = L.by = Math.atan2(p.x - L.x, p.z - L.z);
-    L.A = 1; L.hp = 0.55; L.walk = 0; L.jawOpen = 0.09; L.hs = 1.4;   // склонилось: голова как раз на уровне головы игрока
+    L.A = 1; L.hp = -1.9; L.walk = 0;   // в наклоне лицо смотрит вперёд-вниз, на голову игрока (не в небо)
+    L.jawOpen = 0.09; L.hs = 1.4;   // склонилось: голова как раз на уровне головы игрока
     this.mawL = L;
   },
   mawStep3(dt) {
