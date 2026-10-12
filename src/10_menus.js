@@ -4,6 +4,11 @@
 const SPLASHES = ['Ты здесь не один!', 'Не оглядывайся!', 'Кто поставил этот факел?', 'Туман не рассеется', 'Слышишь шаги?',
   'Альфа-версия!', 'Копай глубже!', 'Не спи в пещере!', 'Сделано из кубов!', 'Сто процентов процедурно!', 'Он смотрит из тумана', 'Факелы кончаются!'];
 const LOGO_FONT = {
+  'E': ['#####', '#....', '#....', '####.', '#....', '#....', '#####'],
+  'L': ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
+  'P': ['####.', '#...#', '#...#', '####.', '#....', '#....', '#....'],
+  'H': ['#...#', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+  'C': ['.###.', '#...#', '#....', '#....', '#....', '#...#', '.###.'],
   'M': ['#...#', '##.##', '#.#.#', '#.#.#', '#...#', '#...#', '#...#'],
   'I': ['###', '.#.', '.#.', '.#.', '.#.', '.#.', '###'],
   'N': ['#...#', '##..#', '#.#.#', '#..##', '#...#', '#...#', '#...#'],
@@ -25,7 +30,7 @@ const LOGO_FONT = {
 };
 const LOGO_BREVE = { 'Й': ['.#.#.', '..#..'] };
 function renderLogo() {
-  const lines = ['MINSRAFT'];
+  const lines = ['ALPHA'];
   const P = 7, D = 3, TOPPAD = 3;
   const lineW = l => [...l].reduce((w, ch) => w + LOGO_FONT[ch][0].length + 1, -1);
   const W = Math.max(...lines.map(lineW)) * P + D + 4, H = (lines.length * 10 + TOPPAD) * P + D + 4;
@@ -90,14 +95,14 @@ const Menus = {
     let h = '';
     if (name === 'title') {
       const sp = SPLASHES[Math.floor(Math.random() * SPLASHES.length)];
-      h = `<div class="logoWrap"><img class="logo" src="${this.logo}" alt="Minsraft"><div class="splash">${sp}</div></div>
+      h = `<div class="logoWrap"><img class="logo" src="${this.logo}" alt="Alpha"><div class="splash">${sp}</div></div>
       <div class="col">${this.btn('Одиночная игра', 'worlds')}
       ${Net.enabled() && Net.isOwner ? this.btn('Игра с другом', 'net') : ''}
       ${Net.isOwner ? this.btn('Миры пользователей', 'owner') : ''}
       <div class="row">${this.btn('Настройки', 'settings', 'half')}${this.btn('Управление', 'controls', 'half')}</div>
       ${Net.enabled() && !Net.isOwner && /owner/.test(location.hash) ? this.btn('Вход владельца', 'ownerLogin', 'tiny') : ''}</div>
       ${matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches ? '<div class="note">Для игры нужны клавиатура и мышь</div>' : ''}
-      <div class="foot"><span>Minsraft альфа 0.1</span><span>Текстуры и звуки созданы кодом</span></div>`;
+      <div class="foot"><span>Alpha 0.1</span><span>Текстуры и звуки созданы кодом</span></div>`;
     } else if (name === 'worlds') {
       const ns = Game.newSlot, svNew = Game.savedInfo(ns);
       h = `<div class="mtitle">Одиночная игра</div><div class="col">`;

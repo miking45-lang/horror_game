@@ -186,7 +186,7 @@ const UI = {
       const t = Game.dayTime, hh = Math.floor((t * 24 + 6) % 24), mm = Math.floor(((t * 24 + 6) % 1) * 60);
       const bio = ['Равнины', 'Лес', 'Пустыня', 'Снега', 'Горы'][World.gen.biome(bx, bz, World.gen.height(bx, bz))];
       dbg.innerHTML = [
-        `Minsraft альфа 0.1 (${Game.fps} к/с)`,
+        `Alpha 0.1 (${Game.fps} к/с)`,
         `Чанки: ${World.chunks.size} загружено, ${Rend.stats.chunks} видно${Rend.stats.refl ? ', отражения' : ''}`,
         `Вершин: ${(Rend.stats.verts / 1000).toFixed(0)}k`,
         `&nbsp;`,
