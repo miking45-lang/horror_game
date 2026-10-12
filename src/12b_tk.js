@@ -15,7 +15,9 @@ const TK = {
   canUse() { return Net.canCmd() && Net.form === 'creature' && Game.state === 'play' && !UI.gui && !Menus.cur && !Player.dead; },
   // ---------- ввод (только у владельца) ----------
   mouseDown(btn) {
+    if (this.heldP) { if (btn === 0) this.releasePlayer(true); return true; }
     if (this.held) { if (btn === 0) this.release(true); return true; }
+    if (btn === 2 && this.canUse() && this.grabPlayer()) return true;
     if (btn === 0 && this.canUse() && this.trySlash()) return true;
     if (btn !== 2 || !this.canUse()) return false;
     return this.grab();
@@ -33,8 +35,11 @@ const TK = {
     Net.send('cmd', { u: Net.uid, c: 'slash', x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), hs });
     return true;
   },
-  mouseUp(btn) { if (btn === 2 && this.held) { this.release(false); return true; } return false; },
-  wheel(dy) { if (!this.held) return false; this.held.tilt += (dy > 0 ? 1 : -1) * Math.PI / 12; return true; },
+  mouseUp(btn) {
+    if (btn === 2 && this.heldP) { this.releasePlayer(false); return true; }
+    if (btn === 2 && this.held) { this.release(false); return true; } return false;
+  },
+  wheel(dy) { if (this.heldP) return true; if (!this.held) return false; this.held.tilt += (dy > 0 ? 1 : -1) * Math.PI / 12; return true; },
   // ---------- поворот: вокруг оси «вправо от взгляда» (наклон), затем по курсу владельца ----------
   rot(T, o) {
     const a0 = -T.yaw0, c0 = Math.cos(a0), s0 = Math.sin(a0);
@@ -106,9 +111,73 @@ const TK = {
   },
   // куда тянется рука (для позы существа): [x,y,z] или 0, и раскрыта ли ладонь
   aim() {
+    if (this.heldP) return { ag: this.heldP.pos.map(v => +v.toFixed(1)), ao: 0 };
     if (this.held) return { ag: this.held.pos.map(v => +v.toFixed(1)), ao: 0 };
     if (this.openT > 0 && this.lastAim) return { ag: this.lastAim.map(v => +v.toFixed(1)), ao: 1 };
     return { ag: 0, ao: 0 };
+  },
+  // ---------- игрок в руках (владелец берёт хозяина мира) ----------
+  heldP: null, carried: null, pflight: null,
+  grabPlayer() {
+    const q = Net.peers.get(Net.hostUid), p = Player;
+    if (!q || performance.now() - (q.seen || 0) > 5000) return false;
+    const d = lookDir(), ey = p.y + EYE * (p.hs || 1), C = [q.x, q.y + 0.9, q.z];
+    const t = (C[0] - p.x) * d[0] + (C[1] - ey) * d[1] + (C[2] - p.z) * d[2];
+    if (t < 1 || t > 48) return false;
+    const miss = Math.hypot(C[0] - (p.x + d[0] * t), C[1] - (ey + d[1] * t), C[2] - (p.z + d[2] * t));
+    if (miss > 0.9) return false;
+    const hit = raycast(p.x, ey, p.z, d[0], d[1], d[2], t);
+    if (hit && hit.t < t - 0.6) return false;                     // игрока закрывает стена
+    this.heldP = { pos: C.slice(), dist: clamp(t, 3, 16) };
+    this.sendT = 0; Net.lastSent = ''; Net.sendT = 0;
+    return true;
+  },
+  releasePlayer(thrown) {
+    const H = this.heldP; if (!H) return;
+    this.heldP = null;
+    const d = lookDir(), v = thrown ? [d[0] * 30, d[1] * 30 + 3, d[2] * 30] : [0, 0, 0];
+    Net.send('pt', { u: Net.uid, vx: +v[0].toFixed(2), vy: +v[1].toFixed(2), vz: +v[2].toFixed(2) });
+    this.openT = thrown ? 0.5 : 0.25; this.lastAim = H.pos.slice(); Net.lastSent = ''; Net.sendT = 0;
+  },
+  // у хозяина мира: владелец держит/бросает его игрока
+  onPHold(v) {
+    if (!v || Net.role !== 'host' || !Net.isOwnerPeer(v.u) || !Number.isFinite(v.x)) return;
+    const p = Player; if (p.dead || Ents.killS || Ents.mawS || Ents.slashS) return;
+    if (!this.carried) this.carried = { tgt: [v.x, v.y, v.z], seen: performance.now(), peak: p.y };
+    else { this.carried.tgt = [v.x, v.y, v.z]; this.carried.seen = performance.now(); }
+    this.pflight = null;
+  },
+  onPThrow(v) {
+    if (!v || Net.role !== 'host' || !Net.isOwnerPeer(v.u) || !this.carried) return;
+    this.carried = null;
+    this.pflight = { v: [+v.vx || 0, +v.vy || 0, +v.vz || 0], t: 0 };
+  },
+  hostCarry(dt) {
+    const p = Player;
+    if (this.carried) {
+      const C = this.carried;
+      if (performance.now() - C.seen > 1500 || p.dead) { this.carried = null; this.pflight = p.dead ? null : { v: [0, 0, 0], t: 0 }; return; }
+      const k = Math.min(1, dt * 12);
+      p.x += (C.tgt[0] - p.x) * k; p.y += (C.tgt[1] - p.y) * k; p.z += (C.tgt[2] - p.z) * k;
+      p.vx = p.vy = p.vz = 0; p.fallDist = 0; Ents.huntLock = true;
+      return;
+    }
+    if (!this.pflight) return;
+    // полёт после броска или падение: своя баллистика, удар — по скорости в момент столкновения
+    const F = this.pflight; F.t += dt; Ents.huntLock = true;
+    F.v[1] -= 25 * dt;
+    const nx = p.x + F.v[0] * dt, ny = p.y + F.v[1] * dt, nz = p.z + F.v[2] * dt;
+    const solidAt = (x, y, z) => { for (const yy of [0.05, 0.9, 1.75]) for (const dx of [-0.29, 0.29]) for (const dz of [-0.29, 0.29]) if (SOLID[World.get(Math.floor(x + dx), Math.floor(y + yy), Math.floor(z + dz))]) return true; return false; };
+    if (solidAt(nx, ny, nz) || F.t > 10 || ny < -20) {
+      const speed = Math.hypot(F.v[0], F.v[1], F.v[2]);
+      this.pflight = null; Ents.huntLock = false; p.vx = p.vy = p.vz = 0; p.fallDist = 0;
+      let dmg = Math.max(0, Math.ceil(speed - 10));                       // чем выше/дальше/сильнее — тем больнее
+      if (isWater(World.get(Math.floor(p.x), Math.floor(p.y + 0.2), Math.floor(p.z)))) dmg = Math.floor(dmg * 0.2);
+      if (dmg > 0) { hurtPlayer(dmg, true); Game.flickerPulse = Math.max(Game.flickerPulse || 0, 0.15); }
+      this._lastLand = { speed: +speed.toFixed(1), dmg };
+      return;
+    }
+    p.x = nx; p.y = ny; p.z = nz; p.vx = p.vy = p.vz = 0; p.fallDist = 0;
   },
   // ---------- сеть ----------
   onGrab(v) {
@@ -129,6 +198,15 @@ const TK = {
   update(dt) {
     const p = Player;
     if (this.held && !this.canUse()) this.release(false);   // сменили облик/вышли — дерево падает
+    if (this.heldP && !this.canUse()) this.releasePlayer(false);
+    if (this.heldP) {                       // держим игрока: точка перед прицелом
+      const H = this.heldP, d = lookDir(), ey = p.y + EYE * (p.hs || 1), k = Math.min(1, dt * 9);
+      const tg = [p.x + d[0] * H.dist, ey + d[1] * H.dist, p.z + d[2] * H.dist];
+      for (let i = 0; i < 3; i++) H.pos[i] += (tg[i] - H.pos[i]) * k;
+      this.sendT -= dt;
+      if (this.sendT <= 0) { this.sendT = 0.066; Net.send('ph', { u: Net.uid, x: +H.pos[0].toFixed(2), y: +(H.pos[1] - 0.9).toFixed(2), z: +H.pos[2].toFixed(2) }); }
+    }
+    this.hostCarry(dt);
     if (this.held) {
       const H = this.held, d = lookDir(), ey = p.y + EYE * (p.hs || 1), k = Math.min(1, dt * 9);
       const tg = [p.x + d[0] * H.dist, ey + d[1] * H.dist, p.z + d[2] * H.dist];
@@ -222,5 +300,5 @@ const TK = {
       batchBlock(batch, b.id, (x, y, z) => [x0 + (x - 0.5) * s, y0 + (y - 0.5) * s, z0 + (z - 0.5) * s], (l >> 4) / 15, (l & 15) / 15);
     }
   },
-  clear() { this.held = null; this.remote.clear(); this.flying.length = 0; this.debris.length = 0; this.openT = 0; this.lastAim = null; }
+  clear() { this.heldP = null; this.carried = null; this.pflight = null; this.held = null; this.remote.clear(); this.flying.length = 0; this.debris.length = 0; this.openT = 0; this.lastAim = null; }
 };
