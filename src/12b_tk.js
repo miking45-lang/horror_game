@@ -43,7 +43,13 @@ const TK = {
     if (btn === 2 && this.heldP) { this.releasePlayer(false); return true; }
     if (btn === 2 && this.held) { this.release(false); return true; } return false;
   },
-  wheel(dy) { if (this.heldP) return true; if (!this.held) return false; this.held.tilt += (dy > 0 ? 1 : -1) * Math.PI / 12; return true; },
+  wheel(dy) {
+    if (this.heldP) return true;
+    if (!this.held) return false;
+    // колья всегда смотрят остриём на прицел — колёсико их не поворачивает, а приближает (на себя) и отдаляет (от себя)
+    if (this.held.stakes) { this.held.dist = clamp(this.held.dist + (dy < 0 ? 1 : -1), 3, 24); return true; }
+    this.held.tilt += (dy > 0 ? 1 : -1) * Math.PI / 12; return true;
+  },
   // ---------- поворот: вокруг оси «вправо от взгляда» (наклон), затем по курсу владельца ----------
   rot(T, o) {
     const a0 = -T.yaw0, c0 = Math.cos(a0), s0 = Math.sin(a0);
