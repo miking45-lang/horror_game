@@ -342,7 +342,6 @@ const Net = {
     if (!this.canCmd() || !['creature', 'black', 'player'].includes(f)) return;
     this.form = f;
     Player.hs = f === 'creature' ? this.cScale : 1;
-    if (this.vanish) { this.vanish = false; if (this.ch) this.ch.track({ u: this.uid, n: this.nick(), o: 1, h: 0, v: 0 }); }
     this.lastSent = ''; this.sendT = 0;
     UI.toast(f === 'creature' ? 'Вы — основное существо: ник скрыт, события существа у игрока остановлены'
       : f === 'black' ? 'Вы — чёрный скин: ник скрыт' : 'Вы снова игрок: ник виден');
