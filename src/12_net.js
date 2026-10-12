@@ -308,7 +308,7 @@ const Net = {
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
   },
   // ---------- команды владельца (в чужом мире) ----------
-  cmdHelp: 'T — чат. Команды: /vanish [on|off] — невидимость, /tp <ник> или /tp x y z — телепорт, /help — список. NumPad 5 — выбор облика',
+  cmdHelp: 'T — чат. Команды: /vanish [on|off] — невидимость, /tp <ник> или /tp x y z — телепорт, /gamemode 0|1 [ник] — режим выживания/творчества себе или игроку, /help — список. NumPad 5 — выбор облика',
   canCmd() { return this.role === 'guest' && this.guestOwner; },
   cmdOpen(prefix) {
     if (!this.chatOk() || this.cmdOn) return;
@@ -347,6 +347,7 @@ const Net = {
     const parts = line.split(/\s+/), n = parts[0].toLowerCase(), a = (parts[1] || '').toLowerCase();
     if (n === 'vanish') this.setVanish(a === 'on' ? true : a === 'off' ? false : !this.vanish);
     else if (n === 'tp') this.teleport(parts.slice(1));
+    else if (n === 'gamemode' || n === 'gm') this.gamemodeCmd(parts.slice(1));
     else if (n === 'help') UI.toast(this.cmdHelp);
     else UI.toast('Неизвестная команда: /' + n + '. ' + this.cmdHelp);
   },
@@ -397,6 +398,32 @@ const Net = {
     if (!best) { UI.toast('Игрок «' + args.join(' ') + '» не найден в этом мире'); return; }
     p.x = best.x; p.y = best.y + 0.01; p.z = best.z; p.vx = p.vy = p.vz = 0; p.fallDist = 0;
     UI.toast('Телепорт к игроку ' + best.n);
+  },
+  // /gamemode 0|1 [ник] — 0 выживание, 1 творчество; без ника — себе. Только владелец
+  gamemodeCmd(args) {
+    const m = { '0': 'survival', 's': 'survival', 'survival': 'survival', '1': 'creative', 'c': 'creative', 'creative': 'creative' }[(args[0] || '').toLowerCase()];
+    if (!m) { UI.toast('Использование: /gamemode 0|1 [ник] — 0 выживание, 1 творчество'); return; }
+    const name = args.slice(1).join(' ').trim().toLowerCase();
+    if (!name) { this.applyMode(m); return; }
+    let best = null;
+    for (const [u, q] of this.peers.entries()) {
+      const n = (q.n || '').toLowerCase(); if (!n) continue;
+      if (n === name) { best = [u, q]; break; }
+      if (!best && n.includes(name)) best = [u, q];
+    }
+    if (!best) { UI.toast('Игрок «' + args.slice(1).join(' ') + '» не найден в этом мире'); return; }
+    this.send('cmd', { u: this.uid, c: 'gm', to: best[0], m });
+    UI.toast('Режим игрока ' + best[1].n + ': ' + (m === 'creative' ? 'творчество (1)' : 'выживание (0)'));
+  },
+  applyMode(m, quiet) {
+    if (Game.mode === m) { if (!quiet) UI.toast('Режим уже ' + (m === 'creative' ? 'творческий' : 'выживание')); return; }
+    Game.mode = m; const p = Player;
+    if (m === 'creative') {
+      if (!p.slots.some(Boolean)) [B.GRASS, B.COBBLE, B.PLANKS, B.LOG, B.GLASS, B.TORCH, B.STONE_BRICKS, B.LANTERN, B.JACK].forEach((id, i) => p.slots[i] = { id, count: 64, dmg: 0 });
+      p.health = 20; p.air = 15;
+    } else p.flying = false;
+    try { if (UI.gui) UI.closeScreen(); UI.refreshHotbar(); UI.refreshHud(); } catch (e) { }
+    UI.toast(m === 'creative' ? 'Ваш режим игры: творчество' : 'Ваш режим игры: выживание');
   },
   setVanish(on) {
     if (on === this.vanish) { UI.toast(on ? 'Вы уже невидимы' : 'Вы уже видимы'); return; }
@@ -478,7 +505,10 @@ const Net = {
     UI.toast('Расправа отправлена хозяину мира');
   },
   onCmd(v) {
-    if (!v || v.u === this.uid || this.role !== 'host') return;
+    if (!v || v.u === this.uid) return;
+    // смена режима игры: адресована конкретному игроку (хозяину или гостю), принимается только от владельца
+    if (v.c === 'gm') { if (v.to === this.uid && this.role && this.isOwnerPeer(v.u) && (v.m === 'creative' || v.m === 'survival')) this.applyMode(v.m, true); return; }
+    if (this.role !== 'host') return;
     if (!this.isOwnerPeer(v.u)) return;   // команды принимаем только от владельца игры (в том числе невидимого)
     if (v.c === 'glitch') Ents.forceGlitch();
     else if (v.c === 'scream') Ents.forceScreamer();
