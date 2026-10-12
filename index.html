@@ -5464,13 +5464,14 @@ Object.assign(Ents, {
     const dx = q.cx - ex, dz = q.cz - ez, dh = Math.hypot(dx, dz), hy = q.cy + 3.1 - ey, d = Math.hypot(dx, hy, dz) || 1;
     const ld = lookDir(), cosA = (ld[0] * dx + ld[1] * hy + ld[2] * dz) / d, lookF = sstep(0.84, 0.995, cosA);
     const prox = clamp((40 - dh) / (40 - 3), 0, 1);
-    const kT = Game.settings.mutant && !p.dead ? Math.min(1, Math.pow(prox, 1.35) * (0.88 + 0.12 * lookF)) : 0;
+    const st = q.st !== 0;   // владелец-существо может выключить свои помехи (NumPad 6)
+    const kT = st && Game.settings.mutant && !p.dead ? Math.min(1, Math.pow(prox, 1.35) * (0.88 + 0.12 * lookF)) : 0;
     this.mutantK += (kT - this.mutantK) * (1 - Math.exp(-dt * 5));
     this.mutantBurst = Math.max(0, this.mutantBurst - dt);
     const f = 1 - Math.exp(-dt * 0.9);
     this.dreadK -= this.dreadK * f; this.huntK -= this.huntK * f; this.dayFog -= this.dayFog * f;
     this.glitchK = Math.max(0, this.glitchK - dt * 2); this.dayLoad = false;
-    this.morphNear = dh < 40;
+    this.morphNear = st && dh < 40;
   },
   // владелец вернулся в игрока или чёрный скин — события снова идут как обычно
   morphEnd() { this.morphOn = false; this.morphNear = false; this.mutantK = 0; },
@@ -7382,6 +7383,7 @@ const Game = {
         return;
       }
       if (c === 'Numpad5' && Net.canCmd()) { e.preventDefault(); Menus.show('morph'); this.releaseMouse(); return; }
+      if ((c === 'Numpad4' || c === 'Numpad6') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.setStatic(c === 'Numpad4'); return; }
       if (c === 'Numpad8' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.toggleArms(); return; }
       if ((c === 'Numpad1' || c === 'Numpad2') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.cry(c === 'Numpad2' ? 1 : 0); return; }
       if (['NumpadAdd', 'Equal', 'NumpadSubtract', 'Minus'].includes(c) && Net.canCmd() && Net.form === 'creature') {
@@ -7872,7 +7874,7 @@ const Net = {
     if (this.sendT <= 0) {
       this.sendT = 0.15;
       const h = p.held();
-      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0 };
+      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, st: this.cStatic ? 1 : 0 };
       const sig = JSON.stringify(v), now = performance.now();
       // двигаемся или стоим — раз в 2 секунды шлём позицию, чтобы нас не сочли пропавшими
       if (!this.vanish && (sig !== this.lastSent || now - this.lastSentT > 2000)) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
@@ -7983,6 +7985,14 @@ const Net = {
     if (!this.canCmd() || this.form !== 'creature') return;
     this.armSpin = !this.armSpin; this.lastSent = ''; this.sendT = 0;
     UI.toast(this.armSpin ? 'Существо вращает руками' : 'Вращение руками остановлено');
+  },
+  // NumPad 4 / NumPad 6 в облике существа: издавать помехи при приближении к игроку или нет (по умолчанию — да)
+  cStatic: true,
+  setStatic(on) {
+    if (!this.canCmd() || this.form !== 'creature') return;
+    if (on === this.cStatic) { UI.toast(on ? 'Помехи уже включены' : 'Помехи уже выключены'); return; }
+    this.cStatic = on; this.lastSent = ''; this.sendT = 0;
+    UI.toast(on ? 'Помехи включены: игрок видит помехи, когда вы рядом' : 'Помехи выключены: игрок не видит помех');
   },
   // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
   // рост существа: клавиши +/- в облике существа; размер запоминается при переключении облика

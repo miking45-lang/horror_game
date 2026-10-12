@@ -239,7 +239,7 @@ const Net = {
     if (this.sendT <= 0) {
       this.sendT = 0.15;
       const h = p.held();
-      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0 };
+      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, st: this.cStatic ? 1 : 0 };
       const sig = JSON.stringify(v), now = performance.now();
       // двигаемся или стоим — раз в 2 секунды шлём позицию, чтобы нас не сочли пропавшими
       if (!this.vanish && (sig !== this.lastSent || now - this.lastSentT > 2000)) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
@@ -350,6 +350,14 @@ const Net = {
     if (!this.canCmd() || this.form !== 'creature') return;
     this.armSpin = !this.armSpin; this.lastSent = ''; this.sendT = 0;
     UI.toast(this.armSpin ? 'Существо вращает руками' : 'Вращение руками остановлено');
+  },
+  // NumPad 4 / NumPad 6 в облике существа: издавать помехи при приближении к игроку или нет (по умолчанию — да)
+  cStatic: true,
+  setStatic(on) {
+    if (!this.canCmd() || this.form !== 'creature') return;
+    if (on === this.cStatic) { UI.toast(on ? 'Помехи уже включены' : 'Помехи уже выключены'); return; }
+    this.cStatic = on; this.lastSent = ''; this.sendT = 0;
+    UI.toast(on ? 'Помехи включены: игрок видит помехи, когда вы рядом' : 'Помехи выключены: игрок не видит помех');
   },
   // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
   // рост существа: клавиши +/- в облике существа; размер запоминается при переключении облика

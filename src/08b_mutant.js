@@ -629,13 +629,14 @@ Object.assign(Ents, {
     const dx = q.cx - ex, dz = q.cz - ez, dh = Math.hypot(dx, dz), hy = q.cy + 3.1 - ey, d = Math.hypot(dx, hy, dz) || 1;
     const ld = lookDir(), cosA = (ld[0] * dx + ld[1] * hy + ld[2] * dz) / d, lookF = sstep(0.84, 0.995, cosA);
     const prox = clamp((40 - dh) / (40 - 3), 0, 1);
-    const kT = Game.settings.mutant && !p.dead ? Math.min(1, Math.pow(prox, 1.35) * (0.88 + 0.12 * lookF)) : 0;
+    const st = q.st !== 0;   // владелец-существо может выключить свои помехи (NumPad 6)
+    const kT = st && Game.settings.mutant && !p.dead ? Math.min(1, Math.pow(prox, 1.35) * (0.88 + 0.12 * lookF)) : 0;
     this.mutantK += (kT - this.mutantK) * (1 - Math.exp(-dt * 5));
     this.mutantBurst = Math.max(0, this.mutantBurst - dt);
     const f = 1 - Math.exp(-dt * 0.9);
     this.dreadK -= this.dreadK * f; this.huntK -= this.huntK * f; this.dayFog -= this.dayFog * f;
     this.glitchK = Math.max(0, this.glitchK - dt * 2); this.dayLoad = false;
-    this.morphNear = dh < 40;
+    this.morphNear = st && dh < 40;
   },
   // владелец вернулся в игрока или чёрный скин — события снова идут как обычно
   morphEnd() { this.morphOn = false; this.morphNear = false; this.mutantK = 0; },
