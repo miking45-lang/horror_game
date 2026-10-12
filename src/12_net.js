@@ -239,7 +239,7 @@ const Net = {
     if (this.sendT <= 0) {
       this.sendT = 0.15;
       const h = p.held();
-      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1 };
+      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0 };
       const sig = JSON.stringify(v), now = performance.now();
       // двигаемся или стоим — раз в 2 секунды шлём позицию, чтобы нас не сочли пропавшими
       if (!this.vanish && (sig !== this.lastSent || now - this.lastSentT > 2000)) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
@@ -281,7 +281,7 @@ const Net = {
     this.snapWait = null; this.evQueue = [];
     if (this.fxOn) this.fxClear();
     if (this.cmdOn) this.cmdClose(true);
-    this.vanish = false; this.form = 'player'; Player.hs = 1;
+    this.vanish = false; this.form = 'player'; Player.hs = 1; this.armSpin = false;
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
   },
   // ---------- команды владельца (в чужом мире) ----------
@@ -344,6 +344,13 @@ const Net = {
     if (!v || v.u === this.uid || this.role !== 'host') return;
     Sfx.cry(v.k | 0, 1, 0);
   },
+  // NumPad 8 в облике существа: медленное вращение руками на 360°, повторное нажатие — стоп
+  armSpin: false,
+  toggleArms() {
+    if (!this.canCmd() || this.form !== 'creature') return;
+    this.armSpin = !this.armSpin; this.lastSent = ''; this.sendT = 0;
+    UI.toast(this.armSpin ? 'Существо вращает руками' : 'Вращение руками остановлено');
+  },
   // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
   // рост существа: клавиши +/- в облике существа; размер запоминается при переключении облика
   cScale: 1,
@@ -390,6 +397,9 @@ const Net = {
     // чем сильнее голова вывернута, тем сильнее она заваливается набок и дёргается
     const tw = Math.min(1, Math.abs(L.hy) / 1.5);
     L.hroll = Math.sign(L.hy) * tw * 0.5 + (Math.random() - 0.5) * 0.06 * (0.3 + tw);
+    // руки: медленно крутятся, пока включено; после выключения доворачиваются до обычного положения
+    if (q.ar) L.armA = (L.armA || 0) + dt * 1.3;
+    else if (L.armA) { const tg = Math.ceil(L.armA / PI2 - 0.02) * PI2; L.armA += Math.min(tg - L.armA, dt * 1.3); if (Math.abs(tg - L.armA) < 1e-3) L.armA = 0; }
     L.x = q.cx; L.y = q.cy; L.z = q.cz; L.yaw = L.by; L.walk = q.walk; L.wph = q.wph; L.hs = q.hs || 1;
     return L;
   },

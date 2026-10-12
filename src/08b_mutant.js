@@ -704,7 +704,7 @@ Object.assign(Ents, {
     // ---- руки ниже колен, длинные пальцы с когтями ----
     const flex = (Math.sin(t * 0.9) + 1) * 0.08;
     for (const s of [-1, 1]) {
-      const upA = mul(mul(tor, T(s * 0.235, 0.9, -0.01)), mul(RZ(s * (0.07 + Math.sin(t * 0.7 + s) * 0.02 + A * 0.35)), RX(mix(-0.3, 2.65))));
+      const upA = mul(mul(tor, T(s * 0.235, 0.9, -0.01)), mul(RZ(s * (0.07 + Math.sin(t * 0.7 + s) * 0.02 + A * 0.35)), RX(mix(-0.3, 2.65) - (L.armA || 0))));
       const fo = mul(mul(upA, T(0, -1.05, 0)), RX(mix(-0.22 - flex * 0.5, -0.8)));
       const wr = mul(mul(fo, T(0, -1.0, 0)), RX(A * 1.0));
       tube([P(upA, 0, 0.03, 0), P(upA, 0, -0.5, 0), P(upA, 0, -1.05, 0), P(fo, 0, -0.5, 0), P(fo, 0, -0.97, 0)],
