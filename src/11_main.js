@@ -220,6 +220,7 @@ const Game = {
       }
       if (c === 'Numpad5' && Net.canCmd()) { e.preventDefault(); Menus.show('morph'); this.releaseMouse(); return; }
       if ((c === 'Numpad4' || c === 'Numpad6') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.setStatic(c === 'Numpad4'); return; }
+      if (c === 'Numpad7' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerGlitch(); return; }
       if (c === 'Numpad8' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.toggleArms(); return; }
       if ((c === 'Numpad1' || c === 'Numpad2') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.cry(c === 'Numpad2' ? 1 : 0); return; }
       if (['NumpadAdd', 'Equal', 'NumpadSubtract', 'Minus'].includes(c) && Net.canCmd() && Net.form === 'creature') {

@@ -612,7 +612,7 @@ Object.assign(Ents, {
     if (this.huntS) { Sfx.huntStop(0.5); this.huntEnd(true); }
     if (this.runS) this.endRun();
     if (this.hellS) this.endHell();
-    if (this.glitchS) { this.revertGlitch(); this.glitchS = null; }
+    if (this.glitchS && !this.glitchS.forced) { this.revertGlitch(); this.glitchS = null; }
     this.dreadS = null; this.dreadTarget = 0; this.peekS = null;
     const L = this.mutant; L.active = false; L.gp = 0; L.peek = false; L.hunt = false;
     this.ghost.active = false;
@@ -635,7 +635,8 @@ Object.assign(Ents, {
     this.mutantBurst = Math.max(0, this.mutantBurst - dt);
     const f = 1 - Math.exp(-dt * 0.9);
     this.dreadK -= this.dreadK * f; this.huntK -= this.huntK * f; this.dayFog -= this.dayFog * f;
-    this.glitchK = Math.max(0, this.glitchK - dt * 2); this.dayLoad = false;
+    if (this.glitchS) this.updateGlitch(dt, false); else this.glitchK = Math.max(0, this.glitchK - dt * 2);   // «сбой мира», запущенный владельцем, идёт до конца
+    this.dayLoad = false;
     this.morphNear = st && dh < 40;
   },
   // владелец вернулся в игрока или чёрный скин — события снова идут как обычно

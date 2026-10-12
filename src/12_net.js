@@ -79,6 +79,7 @@ const Net = {
       .on('broadcast', { event: 'fx' }, m => this.onFx(m.payload))
       .on('broadcast', { event: 'fxs' }, m => this.onFxs(m.payload))
       .on('broadcast', { event: 'cry' }, m => this.onCry(m.payload))
+      .on('broadcast', { event: 'cmd' }, m => this.onCmd(m.payload))
       .on('presence', { event: 'sync' }, () => { try { this.nPres = this.ch ? Object.keys(this.ch.presenceState()).length : 1; } catch (e) { } })
       .on('presence', { event: 'join' }, m => this.onPresJoin(m.newPresences || []))
       .on('presence', { event: 'leave' }, m => this.onPresLeave(m.leftPresences || []));
@@ -358,6 +359,25 @@ const Net = {
     if (on === this.cStatic) { UI.toast(on ? 'Помехи уже включены' : 'Помехи уже выключены'); return; }
     this.cStatic = on; this.lastSent = ''; this.sendT = 0;
     UI.toast(on ? 'Помехи включены: игрок видит помехи, когда вы рядом' : 'Помехи выключены: игрок не видит помех');
+  },
+  // NumPad 7 в облике существа: у хозяина мира начинается «сбой мира» — красное небо и трек, кончается сам
+  glT: 0,
+  triggerGlitch() {
+    if (!this.canCmd() || this.form !== 'creature') return;
+    const now = performance.now(); if (now - this.glT < 2000) return;
+    this.glT = now;
+    this.send('cmd', { u: this.uid, c: 'glitch' });
+    UI.toast('Событие с красным небом запущено у хозяина мира');
+  },
+  isOwnerPeer(u) {
+    const q = this.peers.get(u); if (q && q.o === 1) return true;
+    try { const st = this.ch ? this.ch.presenceState() : {}; for (const k in st) for (const p of st[k] || []) if (p.u === u && p.o) return true; } catch (e) { }
+    return false;
+  },
+  onCmd(v) {
+    if (!v || v.u === this.uid || this.role !== 'host') return;
+    if (!this.isOwnerPeer(v.u)) return;   // команды принимаем только от владельца игры (в том числе невидимого)
+    if (v.c === 'glitch') Ents.forceGlitch();
   },
   // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
   // рост существа: клавиши +/- в облике существа; размер запоминается при переключении облика

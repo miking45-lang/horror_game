@@ -5447,7 +5447,7 @@ Object.assign(Ents, {
     if (this.huntS) { Sfx.huntStop(0.5); this.huntEnd(true); }
     if (this.runS) this.endRun();
     if (this.hellS) this.endHell();
-    if (this.glitchS) { this.revertGlitch(); this.glitchS = null; }
+    if (this.glitchS && !this.glitchS.forced) { this.revertGlitch(); this.glitchS = null; }
     this.dreadS = null; this.dreadTarget = 0; this.peekS = null;
     const L = this.mutant; L.active = false; L.gp = 0; L.peek = false; L.hunt = false;
     this.ghost.active = false;
@@ -5470,7 +5470,8 @@ Object.assign(Ents, {
     this.mutantBurst = Math.max(0, this.mutantBurst - dt);
     const f = 1 - Math.exp(-dt * 0.9);
     this.dreadK -= this.dreadK * f; this.huntK -= this.huntK * f; this.dayFog -= this.dayFog * f;
-    this.glitchK = Math.max(0, this.glitchK - dt * 2); this.dayLoad = false;
+    if (this.glitchS) this.updateGlitch(dt, false); else this.glitchK = Math.max(0, this.glitchK - dt * 2);   // «сбой мира», запущенный владельцем, идёт до конца
+    this.dayLoad = false;
     this.morphNear = st && dh < 40;
   },
   // владелец вернулся в игрока или чёрный скин — события снова идут как обычно
@@ -6004,9 +6005,9 @@ Object.assign(Ents, {
   },
   startGlitch(force) {
     const sc = this.scanGlitch(), kind = sc.trees.length >= 5 ? 'tree' : sc.cacti.length >= 5 ? 'cactus' : '';
-    if (!kind) return false;
+    if (!kind && !force) return false;   // по команде владельца — даже без деревьев: красное небо и трек
     const d = Sfx.glitch(); if (!d) return false;
-    const sorted = (kind === 'tree' ? sc.trees : sc.cacti).sort((a, b) => a.d - b.d), list = []; let budget = 0;
+    const sorted = !kind ? [] : (kind === 'tree' ? sc.trees : sc.cacti).sort((a, b) => a.d - b.d), list = []; let budget = 0;
     for (const t of sorted) { budget += kind === 'tree' ? t.cells.length : t.h; if (budget > 30000 || list.length >= 140) break; list.push(t); }
     const ROUNDS = 4, rounds = [];
     for (let r = 1; r <= ROUNDS; r++) {
@@ -6029,6 +6030,14 @@ Object.assign(Ents, {
       if (World.get(x, y, z) === id) World.setTemp(x, y, z, old);   // если игрок успел изменить блок — не трогаем
     }
     S.undo.length = 0;
+  },
+  // запуск по команде владельца-существа (NumPad 7); завершается сам, когда кончится трек
+  forceGlitch() {
+    if (this.glitchS) return false;
+    if (!Sfx.glitchReady()) { if (Sfx.loadGlitch) Sfx.loadGlitch(); return false; }
+    if (!this.startGlitch(true)) return false;
+    this.glitchS.forced = true;   // не обрывать, когда владелец-существо подходит к игроку
+    return true;
   },
   updateGlitch(dt, allow) {
     const S = this.glitchS;
@@ -7384,6 +7393,7 @@ const Game = {
       }
       if (c === 'Numpad5' && Net.canCmd()) { e.preventDefault(); Menus.show('morph'); this.releaseMouse(); return; }
       if ((c === 'Numpad4' || c === 'Numpad6') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.setStatic(c === 'Numpad4'); return; }
+      if (c === 'Numpad7' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerGlitch(); return; }
       if (c === 'Numpad8' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.toggleArms(); return; }
       if ((c === 'Numpad1' || c === 'Numpad2') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.cry(c === 'Numpad2' ? 1 : 0); return; }
       if (['NumpadAdd', 'Equal', 'NumpadSubtract', 'Minus'].includes(c) && Net.canCmd() && Net.form === 'creature') {
@@ -7714,6 +7724,7 @@ const Net = {
       .on('broadcast', { event: 'fx' }, m => this.onFx(m.payload))
       .on('broadcast', { event: 'fxs' }, m => this.onFxs(m.payload))
       .on('broadcast', { event: 'cry' }, m => this.onCry(m.payload))
+      .on('broadcast', { event: 'cmd' }, m => this.onCmd(m.payload))
       .on('presence', { event: 'sync' }, () => { try { this.nPres = this.ch ? Object.keys(this.ch.presenceState()).length : 1; } catch (e) { } })
       .on('presence', { event: 'join' }, m => this.onPresJoin(m.newPresences || []))
       .on('presence', { event: 'leave' }, m => this.onPresLeave(m.leftPresences || []));
@@ -7993,6 +8004,25 @@ const Net = {
     if (on === this.cStatic) { UI.toast(on ? 'Помехи уже включены' : 'Помехи уже выключены'); return; }
     this.cStatic = on; this.lastSent = ''; this.sendT = 0;
     UI.toast(on ? 'Помехи включены: игрок видит помехи, когда вы рядом' : 'Помехи выключены: игрок не видит помех');
+  },
+  // NumPad 7 в облике существа: у хозяина мира начинается «сбой мира» — красное небо и трек, кончается сам
+  glT: 0,
+  triggerGlitch() {
+    if (!this.canCmd() || this.form !== 'creature') return;
+    const now = performance.now(); if (now - this.glT < 2000) return;
+    this.glT = now;
+    this.send('cmd', { u: this.uid, c: 'glitch' });
+    UI.toast('Событие с красным небом запущено у хозяина мира');
+  },
+  isOwnerPeer(u) {
+    const q = this.peers.get(u); if (q && q.o === 1) return true;
+    try { const st = this.ch ? this.ch.presenceState() : {}; for (const k in st) for (const p of st[k] || []) if (p.u === u && p.o) return true; } catch (e) { }
+    return false;
+  },
+  onCmd(v) {
+    if (!v || v.u === this.uid || this.role !== 'host') return;
+    if (!this.isOwnerPeer(v.u)) return;   // команды принимаем только от владельца игры (в том числе невидимого)
+    if (v.c === 'glitch') Ents.forceGlitch();
   },
   // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
   // рост существа: клавиши +/- в облике существа; размер запоминается при переключении облика
