@@ -8,7 +8,7 @@ Object.assign(Ents, {
   mawS: null, mawL: null,
   forceMaw() {
     const p = Player;
-    if (this.mawS || this.killS || p.dead || Game.state !== 'play') return false;
+    if (this.mawS || this.killS || this.slashS || p.dead || Game.state !== 'play') return false;
     if (this.stopMutantEvents) this.stopMutantEvents();
     if (UI.gui) UI.closeScreen();
     if (Sfx.ctx && !Sfx.cryBufs[2]) Sfx.loadCry();

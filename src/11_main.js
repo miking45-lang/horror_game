@@ -463,16 +463,17 @@ const Game = {
       cam.x += d[0] * s * t; cam.y += d[1] * s * t; cam.z += d[2] * s * t; cam.roll = 0;
       if (this.view === 2) { cam.yaw = p.yaw + Math.PI; cam.pitch = -p.pitch; }
     }
-    const sceneCam = (Ents.killS && Ents.killS.cam) || (Ents.mawS && Ents.mawS.ph >= 3 && Ents.mawS.cam) || null;
+    const sceneCam = (Ents.killS && Ents.killS.cam) || (Ents.mawS && Ents.mawS.ph >= 3 && Ents.mawS.cam) || (Ents.slashS && Ents.slashS.ph >= 1 && Ents.slashS.cam) || null;
+    if (Ents.slashS && Ents.slashS.ph === 0 && !p.dead) { cam.roll += Ents.slashS.fp.roll; cam.y += Ents.slashS.fp.dy; }   // экран валится набок
     if (sceneCam && !p.dead) Object.assign(cam, sceneCam);   // сцены существа: вид со стороны
-    { const kc = !!(sceneCam && !p.dead) || !!Ents.mawS, cr = $('cross'); if (cr && cr._kc !== kc) { cr._kc = kc; cr.style.display = kc ? 'none' : ''; } }
+    { const kc = !!(sceneCam && !p.dead) || !!Ents.mawS || !!Ents.slashS, cr = $('cross'); if (cr && cr._kc !== kc) { cr._kc = kc; cr.style.display = kc ? 'none' : ''; } }
     Net.selfStep(dt);
     const tg = this.buildTargetGfx(cam);
     const fig = Ents.buildFigure(this.batches.fig, cam);
     const scene = {
       ents: Ents.build(this.batches.ents, cam), figure: fig, figureColor: [0.022, 0.02, 0.026, 1],
-      crack: tg.crack, outline: tg.outline, hand: (UI.hideHud || p.dead || this.view || sceneCam || Ents.mawS) ? null : this.buildHand(),
-      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Ents.killL || Ents.mawL || Net.morphMutant() || Net.selfMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
+      crack: tg.crack, outline: tg.outline, hand: (UI.hideHud || p.dead || this.view || sceneCam || Ents.mawS || Ents.slashS) ? null : this.buildHand(),
+      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Ents.killL || Ents.mawL || Ents.slashL || Net.morphMutant() || Net.selfMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
       ghost: Ents.buildMutant(this.batches.ghost, this.batches.ghostEyes, cam, Ents.ghost), ghostEyes: this.batches.ghostEyes
     };
     this._tvT = (this._tvT || 0) - dt;

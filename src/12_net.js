@@ -479,6 +479,7 @@ const Net = {
     else if (v.c === 'scream') Ents.forceScreamer();
     else if (v.c === 'kill') Ents.forceKill(v);
     else if (v.c === 'maw') Ents.forceMaw();
+    else if (v.c === 'slash') Ents.forceSlash(v);
   },
   // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
   // рост существа: клавиши +/- в облике существа; размер запоминается при переключении облика
@@ -660,6 +661,7 @@ const Net = {
     // F5: свой персонаж (за существо — отдельная модель, см. selfMutant)
     if (Ents.killS) Ents.drawKill(batch, cam);   // игрок в руках существа
     else if (Ents.mawS) Ents.drawMaw(batch, cam);
+    else if (Ents.slashS && Ents.slashS.ph >= 1) Ents.drawSlash(batch, cam);
     else if (Game.view && this.form !== 'creature' && !Player.dead) this.drawAv(batch, cam, this.selfQ());
     TK.draw(batch, cam);   // телекинез: деревья в воздухе и обломки
   },

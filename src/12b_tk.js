@@ -16,8 +16,22 @@ const TK = {
   // ---------- ввод (только у владельца) ----------
   mouseDown(btn) {
     if (this.held) { if (btn === 0) this.release(true); return true; }
+    if (btn === 0 && this.canUse() && this.trySlash()) return true;
     if (btn !== 2 || !this.canUse()) return false;
     return this.grab();
+  },
+  // ЛКМ вплотную к хозяину мира — рассечение (у хозяина: падение от первого лица, затем вид со стороны)
+  slashT: 0,
+  trySlash() {
+    const q = Net.peers.get(Net.hostUid), p = Player, hs = p.hs || 1;
+    if (!q || performance.now() - (q.seen || 0) > 5000) return false;
+    const dx = q.x - p.x, dz = q.z - p.z, d = Math.hypot(dx, dz), f = lookDir(), fn = Math.hypot(f[0], f[2]) || 1;
+    if (d > 2.2 + 1.4 * hs || Math.abs(q.y - p.y) > 2.5 * hs) return false;
+    if (d > 0.5 && (dx * f[0] + dz * f[2]) / (d * fn) < 0.35) return false;   // игрок должен быть перед вами
+    const now = performance.now(); if (now - this.slashT < 4000) return true;
+    this.slashT = now;
+    Net.send('cmd', { u: Net.uid, c: 'slash', x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), hs });
+    return true;
   },
   mouseUp(btn) { if (btn === 2 && this.held) { this.release(false); return true; } return false; },
   wheel(dy) { if (!this.held) return false; this.held.tilt += (dy > 0 ? 1 : -1) * Math.PI / 12; return true; },
