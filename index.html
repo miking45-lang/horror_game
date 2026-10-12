@@ -7766,7 +7766,7 @@ const Net = {
   newCode() { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 6; i++) s += A[Math.floor(Math.random() * A.length)]; return s; },
   async startHost() {
     if (this.role || !this.enabled()) return;
-    try { await this.load(); } catch (e) { return; }
+    try { await this.load(); } catch (e) { this.retryHost(); return; }
     if (Game.state !== 'play' || this.role) return;
     const code = this.newCode();
     this.role = 'host'; this.code = code;
@@ -7778,7 +7778,14 @@ const Net = {
       await this.subscribe(this.ch);
       await this.ch.track({ u: this.uid, n: this.nick(), o: this.isOwner ? 1 : 0, h: 1 });
       this.nPres = 1; this.timeT = 0; this.hbT = 5; this.fxWas = false;
-    } catch (e) { this.err = e.message; this.stop(); }
+      // сердцебиение — отдельным таймером: игровой цикл замирает, когда вкладка свёрнута, а мир должен оставаться в списке
+      clearInterval(this.hbTimer); this.hbTimer = setInterval(() => this.heartbeat(), 5000);
+    } catch (e) { this.err = e.message; this.stop(); this.retryHost(); }
+  },
+  // не удалось открыть мир в сети (сбой связи) — пробуем снова, пока игрок в мире
+  retryHost() {
+    clearTimeout(this.hostRetry);
+    this.hostRetry = setTimeout(() => { if (Game.state === 'play' && !this.role) this.startHost(); }, 20000);
   },
   // снимок мира для нового гостя: всё, что игрок изменил, плюс время и позиция хозяина
   snapshot() {
@@ -7890,7 +7897,7 @@ const Net = {
   heartbeat() {
     if (!this.code || !this.sb) return;
     const pl = this.ch ? Object.values(this.ch.presenceState()).filter(a => a.length && !a[a.length - 1].v).length : 1;
-    this.sb.from('rooms').update({ d: Game.dayTime, c: Game.dayCount, pl, updated_at: new Date().toISOString() })
+    this.sb.from('rooms').update({ d: Game.dayTime, c: Game.dayCount, pl })   // updated_at ставит база (триггер)
       .eq('code', this.code).eq('host', this.uid).then(() => { }, () => { });
   },
   // ---------- каждый кадр ----------
@@ -7910,8 +7917,6 @@ const Net = {
     if (this.role === 'host') {
       this.timeT -= dt;
       if (this.timeT <= 0) { this.timeT = 4; this.send('time', { d: Game.dayTime, c: Game.dayCount }); }
-      this.hbT -= dt;
-      if (this.hbT <= 0) { this.hbT = 5; this.heartbeat(); }
       this.fxSendT -= dt;
       if (this.fxSendT <= 0) {
         this.fxSendT = 0.1;
@@ -7931,6 +7936,7 @@ const Net = {
     }
   },
   stop() {
+    clearInterval(this.hbTimer); this.hbTimer = null;
     if (this.role === 'host' && this.sb && this.code) {
       this.sb.from('rooms').delete().eq('code', this.code).eq('host', this.uid).then(() => { }, () => { });
     }
@@ -8166,8 +8172,8 @@ const Net = {
   // ---------- владелец: список миров ----------
   async listRooms() {
     await this.load();
-    const since = new Date(Date.now() - 60000).toISOString();
-    const r = await this.sb.from('rooms').select('*').gte('updated_at', since).order('updated_at', { ascending: false });
+    // список строит сама база по своим часам (функция list_rooms), часы компьютеров не влияют
+    const r = await this.sb.rpc('list_rooms');
     if (r.error) throw new Error(r.error.message);
     return (r.data || []).map(x => ({ ...x, t: Date.parse(x.updated_at) || 0, players: Math.max(0, (x.pl || 1) - 1) }));
   },
