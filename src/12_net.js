@@ -233,7 +233,7 @@ const Net = {
   heartbeat() {
     if (!this.code || !this.sb) return;
     const pl = this.ch ? Object.values(this.ch.presenceState()).filter(a => a.length && !a[a.length - 1].v).length : 1;
-    this.sb.from('rooms').update({ d: Game.dayTime, c: Game.dayCount, pl, updated_at: new Date().toISOString() })
+    this.sb.from('rooms').update({ d: Game.dayTime, c: Game.dayCount, pl })   // updated_at ставит база (триггер)
       .eq('code', this.code).eq('host', this.uid).then(() => { }, () => { });
   },
   // ---------- каждый кадр ----------
@@ -509,8 +509,8 @@ const Net = {
   // ---------- владелец: список миров ----------
   async listRooms() {
     await this.load();
-    const since = new Date(Date.now() - 60000).toISOString();
-    const r = await this.sb.from('rooms').select('*').gte('updated_at', since).order('updated_at', { ascending: false });
+    // список строит сама база по своим часам (функция list_rooms), часы компьютеров не влияют
+    const r = await this.sb.rpc('list_rooms');
     if (r.error) throw new Error(r.error.message);
     return (r.data || []).map(x => ({ ...x, t: Date.parse(x.updated_at) || 0, players: Math.max(0, (x.pl || 1) - 1) }));
   },
