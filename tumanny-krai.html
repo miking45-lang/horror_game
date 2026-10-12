@@ -133,6 +133,8 @@ body { font-family: var(--font); color: var(--ink); user-select: none; -webkit-u
 .olist { display: flex; flex-direction: column; gap: calc(var(--s) * 3); width: min(92vw, calc(var(--s) * 260)); max-height: 50vh; overflow-y: auto; }
 .orow { display: flex; align-items: center; gap: calc(var(--s) * 4); justify-content: space-between; background: rgba(0,0,0,0.35); padding: calc(var(--s) * 2) calc(var(--s) * 4); text-align: left; font-size: calc(var(--s) * 7); }
 .orow small { display: block; color: var(--ink-dim); font-size: calc(var(--s) * 6); }
+#cmdBar { position: fixed; z-index: 9; left: 50%; bottom: calc(var(--s) * 34); transform: translateX(-50%); width: min(92vw, calc(var(--s) * 220)); display: none; }
+#cmdBar input { width: 100%; box-sizing: border-box; padding: calc(var(--s) * 3) calc(var(--s) * 4); background: rgba(0, 0, 0, 0.7); border: calc(var(--s) * 1) solid #888; color: #fff; font: inherit; font-size: calc(var(--s) * 8); outline: none; }
 </style>
 </head>
 <body>
@@ -4656,6 +4658,8 @@ const Ents = {
       if (SOLID[World.get(Math.floor(nx), Math.floor(ny), Math.floor(nz))]) { q.vx *= 0.3; q.vz *= 0.3; q.vy = 0; }
       else { q.x = nx; q.y = ny; q.z = nz; }
     }
+    // наблюдатель (гость в чужом мире): свои события не запускаются, повторяются события хозяина
+    if (typeof Net !== 'undefined' && Net.observer()) { this.fig.active = false; this.ghost.active = false; this.updateDeep(dt); Net.fxStep(dt); return; }
     this.updateFigure(dt);
     if (this.updateMutant) this.updateMutant(dt);
     if (this.updateGhost) this.updateGhost(dt);
@@ -5409,6 +5413,7 @@ Object.assign(Ents, {
   },
   // что показывает телевизор: мультик / помехи (существо скоро появится) / лицо (оно уже здесь)
   tvMode() {
+    if (typeof Net !== 'undefined' && Net.observer()) return Net.fxOn ? Net.fxTv : 'anim';
     if (this.dreadS || this.huntS) return this.mutant.active ? 'face' : 'static';
     if (this.peekS && this.mutant.active) return 'face';
     if ((this.mutant.active && !this.mutant.back) || this.ghost.active || (this.mutant.active && this.mutant.phase > 0)) return 'face';
@@ -7258,7 +7263,7 @@ const Game = {
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement === cv) { this._everLocked = true; this._lockT = performance.now(); this.freeLook = false; if (this._req) this._req.done = true; $('clickHint').hidden = true; return; }
       Input.keys = {}; Input.mouse = [false, false, false];
-      if (this.state === 'play' && !UI.gui && !Menus.cur && !Player.dead) Menus.show('pause');
+      if (this.state === 'play' && !UI.gui && !Menus.cur && !Player.dead && !Net.cmdOn) Menus.show('pause');
     });
     document.addEventListener('pointerlockerror', () => this.lockFailed());
     cv.addEventListener('mousedown', e => {
@@ -7294,6 +7299,7 @@ const Game = {
         return;
       }
       if (Menus.cur) { if (c === 'Escape' && Menus.cur === 'pause') { Menus.hide(); this.captureMouse(true); } return; }
+      if ((c === 'KeyT' || c === 'Slash') && Net.canCmd()) { e.preventDefault(); Net.cmdOpen(c === 'Slash' ? '/' : ''); return; }
       const wasDown = Input.keys[c];
       Input.keys[c] = true;
       // двойное нажатие «вперёд» — бег, как в Minecraft
@@ -7492,7 +7498,7 @@ const Game = {
       }
       if (p.equip < 1) p.equip = Math.min(1, p.equip + sdt * 4);
       Ents.update(sdt);
-      if (!UI.gui && !Menus.cur) Glimpse.update(sdt);
+      if (!UI.gui && !Menus.cur && !Net.observer()) Glimpse.update(sdt);
       Fluid.update(sdt); Net.cap++; try { Switch.tick(sdt); } finally { Net.cap--; }
       for (const [key, c] of World.containers) if (c.type === 'furnace') furnaceTick(c, key, sdt);
       UI.tickGui();
@@ -7558,6 +7564,8 @@ const Net = {
   peers: new Map(),         // uid -> { n, o, x, y, z, ya, pi, h, s, cx, cy, cz, cya, walk, seen }
   cap: 0, applying: false, dirty: new Map(), flushT: 0, sendT: 0, lastSent: '', lastSentT: 0, timeT: 0, hbT: 0,
   snapWait: null, evQueue: [], subs: [],
+  vanish: false, cmdOn: false,
+  nPres: 1, lastJoinT: -1e9, fxT: 0, fxOn: false, fxTgt: null, fxK: [0, 0, 0, 0, 0, 0], fxTv: 'anim', fxSendT: 0, fxWas: false,
   // ---------- настройка ----------
   cfg() {
     let o = null; try { o = JSON.parse(lsGet('tk_net_cfg') || 'null'); } catch (e) { }
@@ -7612,6 +7620,10 @@ const Net = {
       .on('broadcast', { event: 'time' }, m => this.onTime(m.payload))
       .on('broadcast', { event: 'join' }, m => this.onJoin(m.payload))
       .on('broadcast', { event: 'snap' }, m => this.onSnap(m.payload))
+      .on('broadcast', { event: 'bye' }, m => this.onBye(m.payload))
+      .on('broadcast', { event: 'fx' }, m => this.onFx(m.payload))
+      .on('broadcast', { event: 'fxs' }, m => this.onFxs(m.payload))
+      .on('presence', { event: 'sync' }, () => { try { this.nPres = this.ch ? Object.keys(this.ch.presenceState()).length : 1; } catch (e) { } })
       .on('presence', { event: 'join' }, m => this.onPresJoin(m.newPresences || []))
       .on('presence', { event: 'leave' }, m => this.onPresLeave(m.leftPresences || []));
     return ch;
@@ -7625,7 +7637,12 @@ const Net = {
       });
     });
   },
-  send(event, payload) { if (this.ch) this.ch.send({ type: 'broadcast', event, payload }); },
+  send(event, payload) {
+    if (!this.ch) return;
+    // хозяин один в мире — не тратим сообщения впустую (лимит бесплатного плана)
+    if (this.role === 'host' && event !== 'snap' && this.nPres < 2 && performance.now() - this.lastJoinT > 120000) return;
+    this.ch.send({ type: 'broadcast', event, payload });
+  },
   // ---------- комната хозяина ----------
   newCode() { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 6; i++) s += A[Math.floor(Math.random() * A.length)]; return s; },
   async startHost() {
@@ -7641,7 +7658,7 @@ const Net = {
       this.ch = this.makeChannel(code);
       await this.subscribe(this.ch);
       await this.ch.track({ u: this.uid, n: this.nick(), o: this.isOwner ? 1 : 0, h: 1 });
-      this.timeT = 0; this.hbT = 5;
+      this.nPres = 1; this.timeT = 0; this.hbT = 5; this.fxWas = false;
     } catch (e) { this.err = e.message; this.stop(); }
   },
   // снимок мира для нового гостя: всё, что игрок изменил, плюс время и позиция хозяина
@@ -7654,6 +7671,7 @@ const Net = {
   },
   onJoin(v) {
     if (this.role !== 'host' || !v || !v.u || v.u === this.uid) return;
+    this.lastJoinT = performance.now();
     const s = this.snapshot(), a = Math.random().toString(36).slice(2), N = Math.max(1, Math.ceil(s.length / NET_SNAP_CHUNK));
     for (let i = 0; i < N; i++) this.send('snap', { to: v.u, a, i, n: N, s: s.slice(i * NET_SNAP_CHUNK, (i + 1) * NET_SNAP_CHUNK) });
   },
@@ -7683,9 +7701,10 @@ const Net = {
       const w = { a: null, parts: [], n: -1, got: 0, resolve: null, tm: 0 };
       this.snapWait = w;
       const got = new Promise((ok, bad) => { w.resolve = ok; w.tm = setTimeout(() => bad(new Error('Хозяин мира не ответил')), 20000); });
+      this.vanish = !!asOwner;                      // владелец заходит невидимым
       const ch = this.makeChannel(code); this.ch = ch;
       await this.subscribe(ch);
-      await ch.track({ u: this.uid, n: this.nick(), o: asOwner ? 1 : 0, h: 0 });
+      await ch.track({ u: this.uid, n: this.nick(), o: asOwner ? 1 : 0, h: 0, v: this.vanish ? 1 : 0 });
       const ask = () => { if (!w.a) this.send('join', { u: this.uid, n: this.nick(), o: asOwner ? 1 : 0 }); };
       ask(); const rt = setInterval(ask, 5000);
       let text;
@@ -7751,7 +7770,7 @@ const Net = {
   // строка в таблице комнат: число игроков, время суток, отметка «жив»
   heartbeat() {
     if (!this.code || !this.sb) return;
-    const pl = this.ch ? Object.keys(this.ch.presenceState()).length : 1;
+    const pl = this.ch ? Object.values(this.ch.presenceState()).filter(a => a.length && !a[a.length - 1].v).length : 1;
     this.sb.from('rooms').update({ d: Game.dayTime, c: Game.dayCount, pl, updated_at: new Date().toISOString() })
       .eq('code', this.code).eq('host', this.uid).then(() => { }, () => { });
   },
@@ -7767,13 +7786,20 @@ const Net = {
       const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0 };
       const sig = JSON.stringify(v), now = performance.now();
       // двигаемся или стоим — раз в 2 секунды шлём позицию, чтобы нас не сочли пропавшими
-      if (sig !== this.lastSent || now - this.lastSentT > 2000) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
+      if (!this.vanish && (sig !== this.lastSent || now - this.lastSentT > 2000)) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
     }
     if (this.role === 'host') {
       this.timeT -= dt;
       if (this.timeT <= 0) { this.timeT = 4; this.send('time', { d: Game.dayTime, c: Game.dayCount }); }
       this.hbT -= dt;
       if (this.hbT <= 0) { this.hbT = 5; this.heartbeat(); }
+      this.fxSendT -= dt;
+      if (this.fxSendT <= 0) {
+        this.fxSendT = 0.1;
+        const pk = this.fxPack(), act = this.fxActive(pk);
+        if (act || this.fxWas) this.send('fx', act ? pk : { z: 1 });
+        this.fxWas = act;
+      }
     }
     // плавное движение чужих игроков
     for (const q of this.peers.values()) {
@@ -7796,7 +7822,125 @@ const Net = {
     for (const k of this.peers.keys()) this.dropTag(k);
     this.peers.clear(); this.dirty.clear();
     this.snapWait = null; this.evQueue = [];
+    if (this.fxOn) this.fxClear();
+    if (this.cmdOn) this.cmdClose(true);
+    this.vanish = false;
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
+  },
+  // ---------- команды владельца (в чужом мире) ----------
+  cmdHelp: 'Команды: /vanish [on|off] — невидимость, /help — список',
+  canCmd() { return this.role === 'guest' && this.guestOwner; },
+  cmdOpen(prefix) {
+    if (!this.canCmd() || this.cmdOn) return;
+    this.cmdOn = true; Input.keys = {}; Input.mouse = [false, false, false];
+    let el = $('cmdBar');
+    if (!el) {
+      el = document.createElement('div'); el.id = 'cmdBar';
+      el.innerHTML = '<input id="cmdIn" autocomplete="off" spellcheck="false" maxlength="80" placeholder="/vanish">';
+      document.body.appendChild(el);
+      const i = el.firstChild;
+      i.addEventListener('keydown', e => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { const v = i.value; Net.cmdClose(); Net.runCmd(v); e.preventDefault(); }
+        else if (e.key === 'Escape') { Net.cmdClose(); e.preventDefault(); }
+      });
+      i.addEventListener('keyup', e => e.stopPropagation());
+    }
+    el.style.display = 'block';
+    const i = $('cmdIn'); i.value = prefix || '';
+    if (document.pointerLockElement) document.exitPointerLock();
+    setTimeout(() => i.focus(), 0);
+  },
+  cmdClose(quiet) {
+    this.cmdOn = false;
+    const el = $('cmdBar'); if (el) { el.style.display = 'none'; const i = $('cmdIn'); if (i) i.blur(); }
+    if (!quiet) Game.captureMouse(true);
+  },
+  runCmd(line) {
+    line = (line || '').trim().replace(/^\//, '');
+    if (!line) return;
+    if (!this.canCmd()) { UI.toast('Команды доступны владельцу в чужом мире'); return; }
+    const parts = line.split(/\s+/), n = parts[0].toLowerCase(), a = (parts[1] || '').toLowerCase();
+    if (n === 'vanish') this.setVanish(a === 'on' ? true : a === 'off' ? false : !this.vanish);
+    else if (n === 'help') UI.toast(this.cmdHelp);
+    else UI.toast('Неизвестная команда: /' + n + '. ' + this.cmdHelp);
+  },
+  setVanish(on) {
+    if (on === this.vanish) { UI.toast(on ? 'Вы уже невидимы' : 'Вы уже видимы'); return; }
+    this.vanish = on;
+    if (this.ch) this.ch.track({ u: this.uid, n: this.nick(), o: 1, h: 0, v: on ? 1 : 0 });
+    if (on) this.send('bye', { u: this.uid }); else { this.lastSent = ''; this.sendT = 0; }
+    UI.toast(on ? 'Невидимость включена: игроки вас не видят' : 'Невидимость выключена: игроки вас видят');
+  },
+  onBye(v) { if (!v || v.u === this.uid) return; this.peers.delete(v.u); this.dropTag(v.u); },
+  // ---------- события хозяина → наблюдателю ----------
+  // Существо и помехи «живут» у хозяина мира. Гость не запускает свои события, а повторяет то, что происходит у хозяина.
+  FX_SFX: ['staticBurst', 'scream', 'scream2', 'smile', 'dread', 'hunt', 'huntStop', 'glitch', 'smex', 'hell', 'run', 'omen3', 'omen2', 'omen', 'sting'],
+  hookSfx() {
+    for (const n of this.FX_SFX) {
+      const f0 = Sfx[n]; if (typeof f0 !== 'function') continue;
+      Sfx[n] = function (...a) { const r = f0.apply(this, a); if (Net.role === 'host' && Net.ch) Net.send('fxs', { n, a }); return r; };
+    }
+  },
+  observer() { return this.role === 'guest'; },
+  fxPack() {
+    const E = Ents, M = E.mutant, m = {};
+    for (const k in M) { const t = typeof M[k]; if (t === 'number') m[k] = +M[k].toFixed(3); else if (t === 'boolean') m[k] = M[k]; }
+    const S = E.peekS, pk = (S && S.fx !== undefined) ? { fx: S.fx, fy: S.fy, fz: S.fz, t: +S.t.toFixed(2) } : null;
+    const r3 = v => +(v || 0).toFixed(3);
+    return { m, k: [E.mutantK, E.mutantBurst, E.dreadK, E.huntK, E.glitchK, E.dayFog].map(r3), dl: E.dayLoad ? 1 : 0, bl: E.blackOn ? 1 : 0,
+      pc: E.pictureOn ? (Portrait.mode || 'hunt') : '', tv: E.tvMode(), fp: +(Game.flickerPulse || 0).toFixed(2), pk };
+  },
+  fxActive(p) { return !!(p.m.active || p.k.some(v => v > 0.004) || p.bl || p.pc || p.fp > 0 || p.pk); },
+  onFxs(v) {
+    if (this.role !== 'guest' || !v || !Game.settings.mutant || !this.FX_SFX.includes(v.n)) return;
+    try { Sfx[v.n](...(v.a || [])); } catch (e) { }
+  },
+  onFx(v) {
+    if (this.role !== 'guest' || !v || !Game.settings.mutant) return;
+    if (v.z) { this.fxClear(); return; }
+    const E = Ents, M = E.mutant;
+    this.fxT = performance.now(); this.fxOn = true;
+    const m = v.m || {}, was = M.active, px = M.x, py = M.y, pz = M.z, pyaw = M.yaw, pt = M.t, pw = M.wph;
+    Object.assign(M, m);
+    this.fxTgt = { x: m.x, y: m.y, z: m.z, yaw: m.yaw };
+    if (was && m.active) { M.x = px; M.y = py; M.z = pz; M.yaw = pyaw; M.wph = pw; if (Math.abs(pt - m.t) < 0.6) M.t = pt; }   // плавность между пакетами
+    this.fxK = v.k || [0, 0, 0, 0, 0, 0];
+    E.mutantBurst = Math.max(E.mutantBurst || 0, this.fxK[1]);
+    E.dayLoad = !!v.dl;
+    const bl = !!v.bl; if (bl !== E.blackOn) { E.blackOn = bl; BlackFx.set(bl); }
+    const pc = v.pc || '';
+    if (pc && !Portrait.on) Portrait.show(pc); else if (!pc && Portrait.on) Portrait.hide();
+    E.pictureOn = !!pc;
+    Game.flickerPulse = Math.max(Game.flickerPulse || 0, v.fp || 0);
+    this.fxTv = v.tv || 'anim';
+    E.peekS = v.pk ? Object.assign(E.peekS || {}, v.pk) : null;
+  },
+  // каждый кадр у гостя: плавно подтягиваем повторённое состояние
+  fxStep(dt) {
+    if (!this.fxOn) return;
+    const E = Ents, M = E.mutant, T = this.fxTgt, K = this.fxK, a = 1 - Math.exp(-dt * 12);
+    if (performance.now() - this.fxT > 5000) { this.fxClear(); return; }   // от хозяина давно ничего нет
+    if (M.active && T) {
+      const k = 1 - Math.exp(-dt * 14);
+      M.x += (T.x - M.x) * k; M.y += (T.y - M.y) * k; M.z += (T.z - M.z) * k;
+      let da = T.yaw - M.yaw; da = ((da + Math.PI) % PI2 + PI2) % PI2 - Math.PI; M.yaw += da * k;
+      M.t += dt; M.wph += dt * 4.75 * (M.walk || 0);
+    }
+    if (E.peekS) E.peekS.t += dt;
+    E.mutantK += (K[0] - E.mutantK) * a;
+    E.mutantBurst = Math.max(0, E.mutantBurst - dt);
+    E.dreadK += (K[2] - E.dreadK) * a; E.huntK += (K[3] - E.huntK) * a; E.glitchK += (K[4] - E.glitchK) * a; E.dayFog += (K[5] - E.dayFog) * a;
+    Portrait.update(dt);
+  },
+  fxClear() {
+    const E = Ents;
+    this.fxOn = false; this.fxTgt = null; this.fxK = [0, 0, 0, 0, 0, 0]; this.fxTv = 'anim';
+    E.mutant.active = false; E.mutant.gp = 0; E.peekS = null;
+    E.mutantK = 0; E.mutantBurst = 0; E.dreadK = 0; E.huntK = 0; E.glitchK = 0; E.dayFog = 0; E.dayLoad = false;
+    if (E.blackOn) { E.blackOn = false; BlackFx.set(false); }
+    if (Portrait.on) Portrait.hide();
+    E.pictureOn = false;
   },
   // ---------- владелец: список миров ----------
   async listRooms() {
@@ -7870,6 +8014,7 @@ function avBox(b, x0, y0, z0, x1, y1, z1, tiles, P, sky, blk) {
   const set0 = World.set;
   World.set = function (x, y, z, id) { const r = set0.call(this, x, y, z, id); if (r) Net.noteSet(x, y, z); return r; };
 }
+Net.hookSfx();
 
 </script>
 </body>
