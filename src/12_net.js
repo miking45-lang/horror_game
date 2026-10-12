@@ -440,10 +440,20 @@ const Net = {
     try { const st = this.ch ? this.ch.presenceState() : {}; for (const k in st) for (const p of st[k] || []) if (p.u === u && p.o) return true; } catch (e) { }
     return false;
   },
+  // NumPad 9 в облике существа: у хозяина мира — скример (лицо во весь экран и крик)
+  scT: 0,
+  triggerScreamer() {
+    if (!this.canCmd() || this.form !== 'creature') return;
+    const now = performance.now(); if (now - this.scT < 4000) return;
+    this.scT = now;
+    this.send('cmd', { u: this.uid, c: 'scream' });
+    UI.toast('Скример отправлен хозяину мира');
+  },
   onCmd(v) {
     if (!v || v.u === this.uid || this.role !== 'host') return;
     if (!this.isOwnerPeer(v.u)) return;   // команды принимаем только от владельца игры (в том числе невидимого)
     if (v.c === 'glitch') Ents.forceGlitch();
+    else if (v.c === 'scream') Ents.forceScreamer();
   },
   // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
   // рост существа: клавиши +/- в облике существа; размер запоминается при переключении облика
@@ -535,7 +545,7 @@ const Net = {
     E.dayLoad = !!v.dl;
     const bl = !!v.bl; if (bl !== E.blackOn) { E.blackOn = bl; BlackFx.set(bl); }
     const pc = v.pc || '';
-    if (pc && !Portrait.on) Portrait.show(pc); else if (!pc && Portrait.on) Portrait.hide();
+    if (pc && !Portrait.on && this.form !== 'creature') Portrait.show(pc);   // владелец-существо скример у себя не видит else if (!pc && Portrait.on) Portrait.hide();
     E.pictureOn = !!pc;
     Game.flickerPulse = Math.max(Game.flickerPulse || 0, v.fp || 0);
     this.fxTv = v.tv || 'anim';

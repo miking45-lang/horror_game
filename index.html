@@ -4690,6 +4690,7 @@ const Ents = {
     }
     // наблюдатель (гость в чужом мире): свои события не запускаются, повторяются события хозяина
     if (typeof Net !== 'undefined' && Net.observer()) { this.fig.active = false; this.ghost.active = false; this.updateDeep(dt); Net.fxStep(dt); return; }
+    if (this.scrS) this.updateScreamer(dt);
     this.updateFigure(dt);
     // владелец в облике существа: события существа у хозяина остановлены, помехи — от близости владельца
     const cp = typeof Net !== 'undefined' && Net.role === 'host' ? Net.creaturePeer() : null;
@@ -5458,7 +5459,7 @@ Object.assign(Ents, {
     this.ghost.active = false;
     this.omenT = 0; this.dayProbe = 0; this.tvWarn = false; this.tvRolled = false; this.indoor = null;
     this.mutantBurst = 0; this.huntLock = false;
-    if (this.pictureOn) { this.pictureOn = false; Portrait.hide(); }
+    if (this.pictureOn && !this.scrS) { this.pictureOn = false; Portrait.hide(); }
     if (this.blackOn) { this.blackOn = false; BlackFx.set(false); }
   },
   // помехи растут по мере приближения владельца-существа — так же, как при обычной встрече
@@ -6334,6 +6335,19 @@ Object.assign(Ents, {
   endRun() {
     this.runS = null; this.mutantK = 0; this.pictureOn = false; Portrait.hide();
     this.mutantCool = 150 + Math.random() * 100; this.runCool = (900 + Math.random() * 700) * (this.deepOn ? 0.6 : 1);
+  },
+  // скример по команде владельца-существа (NumPad 9): 3D-лицо с улыбкой во весь экран и крик, 3 секунды
+  scrS: null,
+  forceScreamer() {
+    if (this.scrS || this.pictureOn) return false;
+    this.scrS = { t: 0 }; this.pictureOn = true; this.mutantK = 0;
+    Portrait.show('grin'); Sfx.staticBurst(); Game.flickerPulse = 0;
+    try { Sfx.scream(); } catch (e) { }
+    return true;
+  },
+  updateScreamer(dt) {
+    const S = this.scrS; S.t += dt; Portrait.update(dt);
+    if (S.t >= 3) { this.scrS = null; this.pictureOn = false; Portrait.hide(); this.mutantK = 0; }
   },
   updateRun(dt) {
     const S = this.runS; S.t += dt; Portrait.update(dt);
@@ -7410,6 +7424,7 @@ const Game = {
       }
       if (c === 'Numpad5' && Net.canCmd()) { e.preventDefault(); Menus.show('morph'); this.releaseMouse(); return; }
       if ((c === 'Numpad4' || c === 'Numpad6') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.setStatic(c === 'Numpad4'); return; }
+      if (c === 'Numpad9' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerScreamer(); return; }
       if (c === 'Numpad7' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerGlitch(); return; }
       if (c === 'Numpad8' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.toggleArms(); return; }
       if ((c === 'Numpad1' || c === 'Numpad2') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.cry(c === 'Numpad2' ? 1 : 0); return; }
@@ -8102,10 +8117,20 @@ const Net = {
     try { const st = this.ch ? this.ch.presenceState() : {}; for (const k in st) for (const p of st[k] || []) if (p.u === u && p.o) return true; } catch (e) { }
     return false;
   },
+  // NumPad 9 в облике существа: у хозяина мира — скример (лицо во весь экран и крик)
+  scT: 0,
+  triggerScreamer() {
+    if (!this.canCmd() || this.form !== 'creature') return;
+    const now = performance.now(); if (now - this.scT < 4000) return;
+    this.scT = now;
+    this.send('cmd', { u: this.uid, c: 'scream' });
+    UI.toast('Скример отправлен хозяину мира');
+  },
   onCmd(v) {
     if (!v || v.u === this.uid || this.role !== 'host') return;
     if (!this.isOwnerPeer(v.u)) return;   // команды принимаем только от владельца игры (в том числе невидимого)
     if (v.c === 'glitch') Ents.forceGlitch();
+    else if (v.c === 'scream') Ents.forceScreamer();
   },
   // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
   // рост существа: клавиши +/- в облике существа; размер запоминается при переключении облика
@@ -8197,7 +8222,7 @@ const Net = {
     E.dayLoad = !!v.dl;
     const bl = !!v.bl; if (bl !== E.blackOn) { E.blackOn = bl; BlackFx.set(bl); }
     const pc = v.pc || '';
-    if (pc && !Portrait.on) Portrait.show(pc); else if (!pc && Portrait.on) Portrait.hide();
+    if (pc && !Portrait.on && this.form !== 'creature') Portrait.show(pc);   // владелец-существо скример у себя не видит else if (!pc && Portrait.on) Portrait.hide();
     E.pictureOn = !!pc;
     Game.flickerPulse = Math.max(Game.flickerPulse || 0, v.fp || 0);
     this.fxTv = v.tv || 'anim';

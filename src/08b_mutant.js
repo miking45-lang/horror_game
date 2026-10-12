@@ -618,7 +618,7 @@ Object.assign(Ents, {
     this.ghost.active = false;
     this.omenT = 0; this.dayProbe = 0; this.tvWarn = false; this.tvRolled = false; this.indoor = null;
     this.mutantBurst = 0; this.huntLock = false;
-    if (this.pictureOn) { this.pictureOn = false; Portrait.hide(); }
+    if (this.pictureOn && !this.scrS) { this.pictureOn = false; Portrait.hide(); }
     if (this.blackOn) { this.blackOn = false; BlackFx.set(false); }
   },
   // помехи растут по мере приближения владельца-существа — так же, как при обычной встрече

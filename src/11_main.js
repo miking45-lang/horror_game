@@ -220,13 +220,14 @@ const Game = {
       }
       if (c === 'Numpad5' && Net.canCmd()) { e.preventDefault(); Menus.show('morph'); this.releaseMouse(); return; }
       if ((c === 'Numpad4' || c === 'Numpad6') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.setStatic(c === 'Numpad4'); return; }
+      if (c === 'Numpad9' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerScreamer(); return; }
       if (c === 'Numpad7' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerGlitch(); return; }
       if (c === 'Numpad8' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.toggleArms(); return; }
       if ((c === 'Numpad1' || c === 'Numpad2') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.cry(c === 'Numpad2' ? 1 : 0); return; }
       if (['NumpadAdd', 'Equal', 'NumpadSubtract', 'Minus'].includes(c) && Net.canCmd() && Net.form === 'creature') {
         e.preventDefault(); Net.setScale(c === 'NumpadAdd' || c === 'Equal' ? 0.1 : -0.1); return;
       }
-      if ((c === 'KeyT' || c === 'Slash') && Net.canCmd()) { e.preventDefault(); Net.cmdOpen(c === 'Slash' ? '/' : ''); return; }
+      if ((c === 'KeyT' && Net.chatOk()) || (c === 'Slash' && Net.canCmd())) { e.preventDefault(); Net.cmdOpen(c === 'Slash' ? '/' : ''); return; }
       const wasDown = Input.keys[c];
       Input.keys[c] = true;
       // двойное нажатие «вперёд» — бег, как в Minecraft
