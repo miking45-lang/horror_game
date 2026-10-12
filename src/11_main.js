@@ -213,7 +213,12 @@ const Game = {
         else if (/^Digit[1-9]$/.test(c)) UI.swapHotbar(+c.slice(5) - 1);
         return;
       }
-      if (Menus.cur) { if (c === 'Escape' && Menus.cur === 'pause') { Menus.hide(); this.captureMouse(true); } return; }
+      if (Menus.cur) {
+        if (c === 'Escape' && Menus.cur === 'pause') { Menus.hide(); this.captureMouse(true); }
+        else if ((c === 'Escape' || c === 'Numpad5') && Menus.cur === 'morph') { Menus.hide(); this.captureMouse(true); }
+        return;
+      }
+      if (c === 'Numpad5' && Net.canCmd()) { e.preventDefault(); Menus.show('morph'); this.releaseMouse(); return; }
       if ((c === 'KeyT' || c === 'Slash') && Net.canCmd()) { e.preventDefault(); Net.cmdOpen(c === 'Slash' ? '/' : ''); return; }
       const wasDown = Input.keys[c];
       Input.keys[c] = true;
@@ -442,7 +447,7 @@ const Game = {
     const scene = {
       ents: Ents.build(this.batches.ents, cam), figure: fig, figureColor: [0.022, 0.02, 0.026, 1],
       crack: tg.crack, outline: tg.outline, hand: (UI.hideHud || p.dead) ? null : this.buildHand(),
-      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
+      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Net.morphMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
       ghost: Ents.buildMutant(this.batches.ghost, this.batches.ghostEyes, cam, Ents.ghost), ghostEyes: this.batches.ghostEyes
     };
     this._tvT = (this._tvT || 0) - dt;

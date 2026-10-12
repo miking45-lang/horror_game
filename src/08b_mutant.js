@@ -605,9 +605,44 @@ Object.assign(Ents, {
       if (Math.random() < 0.18) this.spawnGhost();
     }
   },
+  // ---------- владелец играет за существо ----------
+  morphOn: false, morphNear: false,
+  // всё, что связано с появлением существа, прекращается сразу
+  stopMutantEvents() {
+    if (this.huntS) { Sfx.huntStop(0.5); this.huntEnd(true); }
+    if (this.runS) this.endRun();
+    if (this.hellS) this.endHell();
+    if (this.glitchS) { this.revertGlitch(); this.glitchS = null; }
+    this.dreadS = null; this.dreadTarget = 0; this.peekS = null;
+    const L = this.mutant; L.active = false; L.gp = 0; L.peek = false; L.hunt = false;
+    this.ghost.active = false;
+    this.omenT = 0; this.dayProbe = 0; this.tvWarn = false; this.tvRolled = false; this.indoor = null;
+    this.mutantBurst = 0; this.huntLock = false;
+    if (this.pictureOn) { this.pictureOn = false; Portrait.hide(); }
+    if (this.blackOn) { this.blackOn = false; BlackFx.set(false); }
+  },
+  // помехи растут по мере приближения владельца-существа — так же, как при обычной встрече
+  morphStep(dt, q) {
+    if (!this.morphOn) { this.morphOn = true; this.stopMutantEvents(); }
+    this.updateDeep(dt);
+    const p = Player, ex = p.x, ey = p.y + EYE, ez = p.z;
+    const dx = q.cx - ex, dz = q.cz - ez, dh = Math.hypot(dx, dz), hy = q.cy + 3.1 - ey, d = Math.hypot(dx, hy, dz) || 1;
+    const ld = lookDir(), cosA = (ld[0] * dx + ld[1] * hy + ld[2] * dz) / d, lookF = sstep(0.84, 0.995, cosA);
+    const prox = clamp((40 - dh) / (40 - 3), 0, 1);
+    const kT = Game.settings.mutant && !p.dead ? Math.min(1, Math.pow(prox, 1.35) * (0.88 + 0.12 * lookF)) : 0;
+    this.mutantK += (kT - this.mutantK) * (1 - Math.exp(-dt * 5));
+    this.mutantBurst = Math.max(0, this.mutantBurst - dt);
+    const f = 1 - Math.exp(-dt * 0.9);
+    this.dreadK -= this.dreadK * f; this.huntK -= this.huntK * f; this.dayFog -= this.dayFog * f;
+    this.glitchK = Math.max(0, this.glitchK - dt * 2); this.dayLoad = false;
+    this.morphNear = dh < 40;
+  },
+  // владелец вернулся в игрока или чёрный скин — события снова идут как обычно
+  morphEnd() { this.morphOn = false; this.morphNear = false; this.mutantK = 0; },
   // что показывает телевизор: мультик / помехи (существо скоро появится) / лицо (оно уже здесь)
   tvMode() {
     if (typeof Net !== 'undefined' && Net.observer()) return Net.fxOn ? Net.fxTv : 'anim';
+    if (this.morphOn) return this.morphNear ? 'face' : 'anim';
     if (this.dreadS || this.huntS) return this.mutant.active ? 'face' : 'static';
     if (this.peekS && this.mutant.active) return 'face';
     if ((this.mutant.active && !this.mutant.back) || this.ghost.active || (this.mutant.active && this.mutant.phase > 0)) return 'face';

@@ -19,7 +19,7 @@ const Net = {
   peers: new Map(),         // uid -> { n, o, x, y, z, ya, pi, h, s, cx, cy, cz, cya, walk, seen }
   cap: 0, applying: false, dirty: new Map(), flushT: 0, sendT: 0, lastSent: '', lastSentT: 0, timeT: 0, hbT: 0,
   snapWait: null, evQueue: [], subs: [],
-  vanish: false, cmdOn: false,
+  vanish: false, cmdOn: false, form: 'player',
   nPres: 1, lastJoinT: -1e9, fxT: 0, fxOn: false, fxTgt: null, fxK: [0, 0, 0, 0, 0, 0], fxTv: 'anim', fxSendT: 0, fxWas: false,
   // ---------- настройка ----------
   cfg() {
@@ -238,7 +238,7 @@ const Net = {
     if (this.sendT <= 0) {
       this.sendT = 0.15;
       const h = p.held();
-      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0 };
+      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '' };
       const sig = JSON.stringify(v), now = performance.now();
       // двигаемся или стоим — раз в 2 секунды шлём позицию, чтобы нас не сочли пропавшими
       if (!this.vanish && (sig !== this.lastSent || now - this.lastSentT > 2000)) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
@@ -258,6 +258,7 @@ const Net = {
     }
     // плавное движение чужих игроков
     for (const q of this.peers.values()) {
+      if (q.L) q.L.t += dt;
       const k = 1 - Math.exp(-dt * 12), ox = q.cx, oz = q.cz;
       q.cx += (q.x - q.cx) * k; q.cy += (q.y - q.cy) * k; q.cz += (q.z - q.cz) * k;
       let da = q.ya - q.cya; da = ((da + Math.PI) % PI2 + PI2) % PI2 - Math.PI; q.cya += da * k;
@@ -279,11 +280,11 @@ const Net = {
     this.snapWait = null; this.evQueue = [];
     if (this.fxOn) this.fxClear();
     if (this.cmdOn) this.cmdClose(true);
-    this.vanish = false;
+    this.vanish = false; this.form = 'player';
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
   },
   // ---------- команды владельца (в чужом мире) ----------
-  cmdHelp: 'Команды: /vanish [on|off] — невидимость, /help — список',
+  cmdHelp: 'Команды: /vanish [on|off] — невидимость, /help — список. NumPad 5 — выбор облика',
   canCmd() { return this.role === 'guest' && this.guestOwner; },
   cmdOpen(prefix) {
     if (!this.canCmd() || this.cmdOn) return;
@@ -326,6 +327,28 @@ const Net = {
     if (this.ch) this.ch.track({ u: this.uid, n: this.nick(), o: 1, h: 0, v: on ? 1 : 0 });
     if (on) this.send('bye', { u: this.uid }); else { this.lastSent = ''; this.sendT = 0; }
     UI.toast(on ? 'Невидимость включена: игроки вас не видят' : 'Невидимость выключена: игроки вас видят');
+  },
+  // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
+  setForm(f) {
+    if (!this.canCmd() || !['creature', 'black', 'player'].includes(f)) return;
+    this.form = f;
+    if (this.vanish) { this.vanish = false; if (this.ch) this.ch.track({ u: this.uid, n: this.nick(), o: 1, h: 0, v: 0 }); }
+    this.lastSent = ''; this.sendT = 0;
+    UI.toast(f === 'creature' ? 'Вы — основное существо: ник скрыт, события существа у игрока остановлены'
+      : f === 'black' ? 'Вы — чёрный скин: ник скрыт' : 'Вы снова игрок: ник виден');
+  },
+  // у хозяина: игрок в облике существа (если есть)
+  creaturePeer() {
+    const now = performance.now();
+    for (const q of this.peers.values()) if (q.m === 'c' && now - (q.seen || 0) < 10000) return q;
+    return null;
+  },
+  // модель существа на месте такого игрока (для отрисовки)
+  morphMutant() {
+    const q = this.creaturePeer(); if (!q) return null;
+    const L = q.L || (q.L = { active: true, day: false, A: 0, S: 0, snapT: 0, twitchV: 0, gp: 0, phase: 0, t: Math.random() * 100 });
+    L.x = q.cx; L.y = q.cy; L.z = q.cz; L.yaw = q.cya + Math.PI; L.walk = q.walk; L.wph = q.wph;
+    return L;
   },
   onBye(v) { if (!v || v.u === this.uid) return; this.peers.delete(v.u); this.dropTag(v.u); },
   // ---------- события хозяина → наблюдателю ----------
@@ -383,7 +406,7 @@ const Net = {
       M.t += dt; M.wph += dt * 4.75 * (M.walk || 0);
     }
     if (E.peekS) E.peekS.t += dt;
-    E.mutantK += (K[0] - E.mutantK) * a;
+    E.mutantK += ((this.form === 'creature' ? 0 : K[0]) - E.mutantK) * a;   // в облике существа свои помехи не видим
     E.mutantBurst = Math.max(0, E.mutantBurst - dt);
     E.dreadK += (K[2] - E.dreadK) * a; E.huntK += (K[3] - E.huntK) * a; E.glitchK += (K[4] - E.glitchK) * a; E.dayFog += (K[5] - E.dayFog) * a;
     Portrait.update(dt);
@@ -410,7 +433,7 @@ const Net = {
     if (!this.peers.size) return;
     const now = performance.now();
     for (const q of this.peers.values()) {
-      if (now - (q.seen || 0) > 15000) continue;
+      if (now - (q.seen || 0) > 15000 || q.m === 'c') continue;            // существо рисуется отдельной моделью
       const l = World.light(Math.floor(q.cx), Math.floor(q.cy + 1), Math.floor(q.cz));
       const sky = (l >> 4) / 15, blk = (l & 15) / 15;
       const c = Math.cos(q.cya), s = Math.sin(q.cya), sn = q.s ? 0.15 : 0;
@@ -422,7 +445,8 @@ const Net = {
         const T = (x, y, z) => { let yy = y - py, y2 = yy * cr - z * sr + py, z2 = yy * sr + z * cr; if (lean) { const yb = y2 - 0.75; y2 = yb * cl - z2 * sl + 0.75; z2 = yb * sl + z2 * cl; } return tf(x, y2, z2); };
         avBox(batch, x0, y0, z0, x1, y1, z1, tiles, T, sky, blk);
       };
-      const skin = TILE.av_skin, shirt = q.o ? TILE.av_shirt2 : TILE.av_shirt, pants = TILE.av_pants;
+      const dark = q.m === 'b', SH = TILE.shadow;                         // чёрный скин
+      const skin = dark ? SH : TILE.av_skin, shirt = dark ? SH : q.o ? TILE.av_shirt2 : TILE.av_shirt, pants = dark ? SH : TILE.av_pants;
       const S6 = t => [t, t, t, t, t, t];
       box(-0.25, 0, -0.125, 0, 0.75, 0.125, S6(pants), sw, 0.75);
       box(0, 0, -0.125, 0.25, 0.75, 0.125, S6(pants), -sw, 0.75);
@@ -431,7 +455,7 @@ const Net = {
       box(0.25, 0.75, -0.125, 0.5, 1.5, 0.125, [shirt, shirt, shirt, skin, shirt, shirt], sw * 0.8, 1.4, sn);
       // голова: лицо смотрит туда же, куда игрок (−Z в локальных координатах), наклон по pitch
       const pi = -(q.pi || 0) * 0.8;
-      box(-0.25, 1.5 - sn, -0.25, 0.25, 2.0 - sn, 0.25, [TILE.av_side, TILE.av_side, TILE.av_hair, skin, TILE.av_hair, TILE.av_face], pi, 1.5 - sn);
+      box(-0.25, 1.5 - sn, -0.25, 0.25, 2.0 - sn, 0.25, dark ? S6(SH) : [TILE.av_side, TILE.av_side, TILE.av_hair, skin, TILE.av_hair, TILE.av_face], pi, 1.5 - sn);
     }
   },
   // подписи с именами над головами
@@ -444,6 +468,7 @@ const Net = {
     for (const [k, q] of this.peers) {
       let e = this.tags.get(k);
       if (!e) { e = document.createElement('div'); e.className = 'nettag'; document.body.appendChild(e); this.tags.set(k, e); }
+      if (q.m) { e.style.display = 'none'; continue; }                  // в облике существа или чёрного скина ника нет
       const name = (q.o ? '★ ' : '') + (q.n || 'Игрок');
       if (e.textContent !== name) e.textContent = name;
       const v = m4xv(VP, q.cx - cam.x, q.cy + 2.3 - cam.y, q.cz - cam.z, 1);

@@ -4661,6 +4661,10 @@ const Ents = {
     // наблюдатель (гость в чужом мире): свои события не запускаются, повторяются события хозяина
     if (typeof Net !== 'undefined' && Net.observer()) { this.fig.active = false; this.ghost.active = false; this.updateDeep(dt); Net.fxStep(dt); return; }
     this.updateFigure(dt);
+    // владелец в облике существа: события существа у хозяина остановлены, помехи — от близости владельца
+    const cp = typeof Net !== 'undefined' && Net.role === 'host' ? Net.creaturePeer() : null;
+    if (cp && this.morphStep) { this.morphStep(dt, cp); return; }
+    if (this.morphOn) this.morphEnd();
     if (this.updateMutant) this.updateMutant(dt);
     if (this.updateGhost) this.updateGhost(dt);
   },
@@ -5411,9 +5415,44 @@ Object.assign(Ents, {
       if (Math.random() < 0.18) this.spawnGhost();
     }
   },
+  // ---------- владелец играет за существо ----------
+  morphOn: false, morphNear: false,
+  // всё, что связано с появлением существа, прекращается сразу
+  stopMutantEvents() {
+    if (this.huntS) { Sfx.huntStop(0.5); this.huntEnd(true); }
+    if (this.runS) this.endRun();
+    if (this.hellS) this.endHell();
+    if (this.glitchS) { this.revertGlitch(); this.glitchS = null; }
+    this.dreadS = null; this.dreadTarget = 0; this.peekS = null;
+    const L = this.mutant; L.active = false; L.gp = 0; L.peek = false; L.hunt = false;
+    this.ghost.active = false;
+    this.omenT = 0; this.dayProbe = 0; this.tvWarn = false; this.tvRolled = false; this.indoor = null;
+    this.mutantBurst = 0; this.huntLock = false;
+    if (this.pictureOn) { this.pictureOn = false; Portrait.hide(); }
+    if (this.blackOn) { this.blackOn = false; BlackFx.set(false); }
+  },
+  // помехи растут по мере приближения владельца-существа — так же, как при обычной встрече
+  morphStep(dt, q) {
+    if (!this.morphOn) { this.morphOn = true; this.stopMutantEvents(); }
+    this.updateDeep(dt);
+    const p = Player, ex = p.x, ey = p.y + EYE, ez = p.z;
+    const dx = q.cx - ex, dz = q.cz - ez, dh = Math.hypot(dx, dz), hy = q.cy + 3.1 - ey, d = Math.hypot(dx, hy, dz) || 1;
+    const ld = lookDir(), cosA = (ld[0] * dx + ld[1] * hy + ld[2] * dz) / d, lookF = sstep(0.84, 0.995, cosA);
+    const prox = clamp((40 - dh) / (40 - 3), 0, 1);
+    const kT = Game.settings.mutant && !p.dead ? Math.min(1, Math.pow(prox, 1.35) * (0.88 + 0.12 * lookF)) : 0;
+    this.mutantK += (kT - this.mutantK) * (1 - Math.exp(-dt * 5));
+    this.mutantBurst = Math.max(0, this.mutantBurst - dt);
+    const f = 1 - Math.exp(-dt * 0.9);
+    this.dreadK -= this.dreadK * f; this.huntK -= this.huntK * f; this.dayFog -= this.dayFog * f;
+    this.glitchK = Math.max(0, this.glitchK - dt * 2); this.dayLoad = false;
+    this.morphNear = dh < 40;
+  },
+  // владелец вернулся в игрока или чёрный скин — события снова идут как обычно
+  morphEnd() { this.morphOn = false; this.morphNear = false; this.mutantK = 0; },
   // что показывает телевизор: мультик / помехи (существо скоро появится) / лицо (оно уже здесь)
   tvMode() {
     if (typeof Net !== 'undefined' && Net.observer()) return Net.fxOn ? Net.fxTv : 'anim';
+    if (this.morphOn) return this.morphNear ? 'face' : 'anim';
     if (this.dreadS || this.huntS) return this.mutant.active ? 'face' : 'static';
     if (this.peekS && this.mutant.active) return 'face';
     if ((this.mutant.active && !this.mutant.back) || this.ghost.active || (this.mutant.active && this.mutant.phase > 0)) return 'face';
@@ -6987,6 +7026,14 @@ const Menus = {
         ${this.btn(Net.role === 'guest' ? 'Выйти из чужого мира' : 'Сохранить и выйти в меню', 'quit')}</div>
         ${Net.role === 'host' && Net.code && Net.isOwner ? `<div class="note">Код мира для друга: <b class="netcode">${Net.code}</b></div>` : ''}
         ${Net.role === 'guest' ? '<div class="note">Вы в чужом мире — ваши действия видит хозяин, мир сохраняется у него</div>' : ''}`;
+    } else if (name === 'morph') {
+      const mark = f => Net.form === f ? '» ' : '';
+      h = `<div class="mtitle">Облик</div><div class="col">
+        ${this.btn(mark('creature') + 'Основное существо', 'form:creature')}
+        ${this.btn(mark('black') + 'Чёрный скин', 'form:black')}
+        ${this.btn(mark('player') + 'Игрок', 'form:player')}
+        <div class="note">Существо: игрок видит вас им, по мере приближения у него растут помехи, а его события с существом на это время прекращаются. В облике существа и чёрного скина ник скрыт.</div>
+        ${this.btn('Отмена', 'morphClose')}</div>`;
     } else if (name === 'death') {
       h = `<div class="mtitle death">Вы погибли!</div><div class="note">Вещи остались на месте гибели</div><div class="col">${this.btn('Возродиться', 'respawn')}${this.btn('Выйти в меню', 'quit')}</div>`;
       e.className = 'menu deathbg';
@@ -7072,6 +7119,8 @@ const Menus = {
       Game.newWorld(s ? strSeed(s) : (Math.random() * 2147483647) | 0, Game.newMode, s || null);
     }
     else if (a === 'resume') { this.hide(); Game.captureMouse(true); }
+    else if (a.startsWith('form:')) { Net.setForm(a.slice(5)); this.hide(); Game.captureMouse(true); }
+    else if (a === 'morphClose') { this.hide(); Game.captureMouse(true); }
     else if (a === 'quit') { Game.saveWorld(); Game.toTitle(); }
     else if (a === 'respawn') { Game.respawn(); }
     else if (a.startsWith('tog:')) { const k = a.slice(4); Game.settings[k] = !Game.settings[k]; Game.applySettings(); Game.saveSettings(); this.show('settings'); }
@@ -7298,7 +7347,12 @@ const Game = {
         else if (/^Digit[1-9]$/.test(c)) UI.swapHotbar(+c.slice(5) - 1);
         return;
       }
-      if (Menus.cur) { if (c === 'Escape' && Menus.cur === 'pause') { Menus.hide(); this.captureMouse(true); } return; }
+      if (Menus.cur) {
+        if (c === 'Escape' && Menus.cur === 'pause') { Menus.hide(); this.captureMouse(true); }
+        else if ((c === 'Escape' || c === 'Numpad5') && Menus.cur === 'morph') { Menus.hide(); this.captureMouse(true); }
+        return;
+      }
+      if (c === 'Numpad5' && Net.canCmd()) { e.preventDefault(); Menus.show('morph'); this.releaseMouse(); return; }
       if ((c === 'KeyT' || c === 'Slash') && Net.canCmd()) { e.preventDefault(); Net.cmdOpen(c === 'Slash' ? '/' : ''); return; }
       const wasDown = Input.keys[c];
       Input.keys[c] = true;
@@ -7527,7 +7581,7 @@ const Game = {
     const scene = {
       ents: Ents.build(this.batches.ents, cam), figure: fig, figureColor: [0.022, 0.02, 0.026, 1],
       crack: tg.crack, outline: tg.outline, hand: (UI.hideHud || p.dead) ? null : this.buildHand(),
-      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
+      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Net.morphMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
       ghost: Ents.buildMutant(this.batches.ghost, this.batches.ghostEyes, cam, Ents.ghost), ghostEyes: this.batches.ghostEyes
     };
     this._tvT = (this._tvT || 0) - dt;
@@ -7564,7 +7618,7 @@ const Net = {
   peers: new Map(),         // uid -> { n, o, x, y, z, ya, pi, h, s, cx, cy, cz, cya, walk, seen }
   cap: 0, applying: false, dirty: new Map(), flushT: 0, sendT: 0, lastSent: '', lastSentT: 0, timeT: 0, hbT: 0,
   snapWait: null, evQueue: [], subs: [],
-  vanish: false, cmdOn: false,
+  vanish: false, cmdOn: false, form: 'player',
   nPres: 1, lastJoinT: -1e9, fxT: 0, fxOn: false, fxTgt: null, fxK: [0, 0, 0, 0, 0, 0], fxTv: 'anim', fxSendT: 0, fxWas: false,
   // ---------- настройка ----------
   cfg() {
@@ -7783,7 +7837,7 @@ const Net = {
     if (this.sendT <= 0) {
       this.sendT = 0.15;
       const h = p.held();
-      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0 };
+      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '' };
       const sig = JSON.stringify(v), now = performance.now();
       // двигаемся или стоим — раз в 2 секунды шлём позицию, чтобы нас не сочли пропавшими
       if (!this.vanish && (sig !== this.lastSent || now - this.lastSentT > 2000)) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
@@ -7803,6 +7857,7 @@ const Net = {
     }
     // плавное движение чужих игроков
     for (const q of this.peers.values()) {
+      if (q.L) q.L.t += dt;
       const k = 1 - Math.exp(-dt * 12), ox = q.cx, oz = q.cz;
       q.cx += (q.x - q.cx) * k; q.cy += (q.y - q.cy) * k; q.cz += (q.z - q.cz) * k;
       let da = q.ya - q.cya; da = ((da + Math.PI) % PI2 + PI2) % PI2 - Math.PI; q.cya += da * k;
@@ -7824,11 +7879,11 @@ const Net = {
     this.snapWait = null; this.evQueue = [];
     if (this.fxOn) this.fxClear();
     if (this.cmdOn) this.cmdClose(true);
-    this.vanish = false;
+    this.vanish = false; this.form = 'player';
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
   },
   // ---------- команды владельца (в чужом мире) ----------
-  cmdHelp: 'Команды: /vanish [on|off] — невидимость, /help — список',
+  cmdHelp: 'Команды: /vanish [on|off] — невидимость, /help — список. NumPad 5 — выбор облика',
   canCmd() { return this.role === 'guest' && this.guestOwner; },
   cmdOpen(prefix) {
     if (!this.canCmd() || this.cmdOn) return;
@@ -7871,6 +7926,28 @@ const Net = {
     if (this.ch) this.ch.track({ u: this.uid, n: this.nick(), o: 1, h: 0, v: on ? 1 : 0 });
     if (on) this.send('bye', { u: this.uid }); else { this.lastSent = ''; this.sendT = 0; }
     UI.toast(on ? 'Невидимость включена: игроки вас не видят' : 'Невидимость выключена: игроки вас видят');
+  },
+  // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
+  setForm(f) {
+    if (!this.canCmd() || !['creature', 'black', 'player'].includes(f)) return;
+    this.form = f;
+    if (this.vanish) { this.vanish = false; if (this.ch) this.ch.track({ u: this.uid, n: this.nick(), o: 1, h: 0, v: 0 }); }
+    this.lastSent = ''; this.sendT = 0;
+    UI.toast(f === 'creature' ? 'Вы — основное существо: ник скрыт, события существа у игрока остановлены'
+      : f === 'black' ? 'Вы — чёрный скин: ник скрыт' : 'Вы снова игрок: ник виден');
+  },
+  // у хозяина: игрок в облике существа (если есть)
+  creaturePeer() {
+    const now = performance.now();
+    for (const q of this.peers.values()) if (q.m === 'c' && now - (q.seen || 0) < 10000) return q;
+    return null;
+  },
+  // модель существа на месте такого игрока (для отрисовки)
+  morphMutant() {
+    const q = this.creaturePeer(); if (!q) return null;
+    const L = q.L || (q.L = { active: true, day: false, A: 0, S: 0, snapT: 0, twitchV: 0, gp: 0, phase: 0, t: Math.random() * 100 });
+    L.x = q.cx; L.y = q.cy; L.z = q.cz; L.yaw = q.cya + Math.PI; L.walk = q.walk; L.wph = q.wph;
+    return L;
   },
   onBye(v) { if (!v || v.u === this.uid) return; this.peers.delete(v.u); this.dropTag(v.u); },
   // ---------- события хозяина → наблюдателю ----------
@@ -7928,7 +8005,7 @@ const Net = {
       M.t += dt; M.wph += dt * 4.75 * (M.walk || 0);
     }
     if (E.peekS) E.peekS.t += dt;
-    E.mutantK += (K[0] - E.mutantK) * a;
+    E.mutantK += ((this.form === 'creature' ? 0 : K[0]) - E.mutantK) * a;   // в облике существа свои помехи не видим
     E.mutantBurst = Math.max(0, E.mutantBurst - dt);
     E.dreadK += (K[2] - E.dreadK) * a; E.huntK += (K[3] - E.huntK) * a; E.glitchK += (K[4] - E.glitchK) * a; E.dayFog += (K[5] - E.dayFog) * a;
     Portrait.update(dt);
@@ -7955,7 +8032,7 @@ const Net = {
     if (!this.peers.size) return;
     const now = performance.now();
     for (const q of this.peers.values()) {
-      if (now - (q.seen || 0) > 15000) continue;
+      if (now - (q.seen || 0) > 15000 || q.m === 'c') continue;            // существо рисуется отдельной моделью
       const l = World.light(Math.floor(q.cx), Math.floor(q.cy + 1), Math.floor(q.cz));
       const sky = (l >> 4) / 15, blk = (l & 15) / 15;
       const c = Math.cos(q.cya), s = Math.sin(q.cya), sn = q.s ? 0.15 : 0;
@@ -7967,7 +8044,8 @@ const Net = {
         const T = (x, y, z) => { let yy = y - py, y2 = yy * cr - z * sr + py, z2 = yy * sr + z * cr; if (lean) { const yb = y2 - 0.75; y2 = yb * cl - z2 * sl + 0.75; z2 = yb * sl + z2 * cl; } return tf(x, y2, z2); };
         avBox(batch, x0, y0, z0, x1, y1, z1, tiles, T, sky, blk);
       };
-      const skin = TILE.av_skin, shirt = q.o ? TILE.av_shirt2 : TILE.av_shirt, pants = TILE.av_pants;
+      const dark = q.m === 'b', SH = TILE.shadow;                         // чёрный скин
+      const skin = dark ? SH : TILE.av_skin, shirt = dark ? SH : q.o ? TILE.av_shirt2 : TILE.av_shirt, pants = dark ? SH : TILE.av_pants;
       const S6 = t => [t, t, t, t, t, t];
       box(-0.25, 0, -0.125, 0, 0.75, 0.125, S6(pants), sw, 0.75);
       box(0, 0, -0.125, 0.25, 0.75, 0.125, S6(pants), -sw, 0.75);
@@ -7976,7 +8054,7 @@ const Net = {
       box(0.25, 0.75, -0.125, 0.5, 1.5, 0.125, [shirt, shirt, shirt, skin, shirt, shirt], sw * 0.8, 1.4, sn);
       // голова: лицо смотрит туда же, куда игрок (−Z в локальных координатах), наклон по pitch
       const pi = -(q.pi || 0) * 0.8;
-      box(-0.25, 1.5 - sn, -0.25, 0.25, 2.0 - sn, 0.25, [TILE.av_side, TILE.av_side, TILE.av_hair, skin, TILE.av_hair, TILE.av_face], pi, 1.5 - sn);
+      box(-0.25, 1.5 - sn, -0.25, 0.25, 2.0 - sn, 0.25, dark ? S6(SH) : [TILE.av_side, TILE.av_side, TILE.av_hair, skin, TILE.av_hair, TILE.av_face], pi, 1.5 - sn);
     }
   },
   // подписи с именами над головами
@@ -7989,6 +8067,7 @@ const Net = {
     for (const [k, q] of this.peers) {
       let e = this.tags.get(k);
       if (!e) { e = document.createElement('div'); e.className = 'nettag'; document.body.appendChild(e); this.tags.set(k, e); }
+      if (q.m) { e.style.display = 'none'; continue; }                  // в облике существа или чёрного скина ника нет
       const name = (q.o ? '★ ' : '') + (q.n || 'Игрок');
       if (e.textContent !== name) e.textContent = name;
       const v = m4xv(VP, q.cx - cam.x, q.cy + 2.3 - cam.y, q.cz - cam.z, 1);

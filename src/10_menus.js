@@ -132,6 +132,14 @@ const Menus = {
         ${this.btn(Net.role === 'guest' ? 'Выйти из чужого мира' : 'Сохранить и выйти в меню', 'quit')}</div>
         ${Net.role === 'host' && Net.code && Net.isOwner ? `<div class="note">Код мира для друга: <b class="netcode">${Net.code}</b></div>` : ''}
         ${Net.role === 'guest' ? '<div class="note">Вы в чужом мире — ваши действия видит хозяин, мир сохраняется у него</div>' : ''}`;
+    } else if (name === 'morph') {
+      const mark = f => Net.form === f ? '» ' : '';
+      h = `<div class="mtitle">Облик</div><div class="col">
+        ${this.btn(mark('creature') + 'Основное существо', 'form:creature')}
+        ${this.btn(mark('black') + 'Чёрный скин', 'form:black')}
+        ${this.btn(mark('player') + 'Игрок', 'form:player')}
+        <div class="note">Существо: игрок видит вас им, по мере приближения у него растут помехи, а его события с существом на это время прекращаются. В облике существа и чёрного скина ник скрыт.</div>
+        ${this.btn('Отмена', 'morphClose')}</div>`;
     } else if (name === 'death') {
       h = `<div class="mtitle death">Вы погибли!</div><div class="note">Вещи остались на месте гибели</div><div class="col">${this.btn('Возродиться', 'respawn')}${this.btn('Выйти в меню', 'quit')}</div>`;
       e.className = 'menu deathbg';
@@ -217,6 +225,8 @@ const Menus = {
       Game.newWorld(s ? strSeed(s) : (Math.random() * 2147483647) | 0, Game.newMode, s || null);
     }
     else if (a === 'resume') { this.hide(); Game.captureMouse(true); }
+    else if (a.startsWith('form:')) { Net.setForm(a.slice(5)); this.hide(); Game.captureMouse(true); }
+    else if (a === 'morphClose') { this.hide(); Game.captureMouse(true); }
     else if (a === 'quit') { Game.saveWorld(); Game.toTitle(); }
     else if (a === 'respawn') { Game.respawn(); }
     else if (a.startsWith('tog:')) { const k = a.slice(4); Game.settings[k] = !Game.settings[k]; Game.applySettings(); Game.saveSettings(); this.show('settings'); }
