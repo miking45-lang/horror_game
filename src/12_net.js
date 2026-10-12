@@ -449,11 +449,22 @@ const Net = {
     this.send('cmd', { u: this.uid, c: 'scream' });
     UI.toast('Скример отправлен хозяину мира');
   },
+  // NumPad 0 в облике существа: «расправа» над хозяином мира
+  kT: 0,
+  triggerKill() {
+    if (!this.canCmd() || this.form !== 'creature') return;
+    const now = performance.now(); if (now - this.kT < 15000) { UI.toast('Подождите немного'); return; }
+    this.kT = now;
+    const p = Player;
+    this.send('cmd', { u: this.uid, c: 'kill', x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), hs: this.cScale });
+    UI.toast('Расправа отправлена хозяину мира');
+  },
   onCmd(v) {
     if (!v || v.u === this.uid || this.role !== 'host') return;
     if (!this.isOwnerPeer(v.u)) return;   // команды принимаем только от владельца игры (в том числе невидимого)
     if (v.c === 'glitch') Ents.forceGlitch();
     else if (v.c === 'scream') Ents.forceScreamer();
+    else if (v.c === 'kill') Ents.forceKill(v);
   },
   // облик владельца: 'player' | 'creature' (основное существо) | 'black' (чёрный скин)
   // рост существа: клавиши +/- в облике существа; размер запоминается при переключении облика
@@ -618,7 +629,8 @@ const Net = {
       this.drawAv(batch, cam, q);
     }
     // F5: свой персонаж (за существо — отдельная модель, см. selfMutant)
-    if (Game.view && this.form !== 'creature' && !Player.dead) this.drawAv(batch, cam, this.selfQ());
+    if (Ents.killS) Ents.drawKill(batch, cam);   // игрок в руках существа
+    else if (Game.view && this.form !== 'creature' && !Player.dead) this.drawAv(batch, cam, this.selfQ());
   },
   drawAv(batch, cam, q) {
     {
