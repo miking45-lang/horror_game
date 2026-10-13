@@ -380,9 +380,12 @@ const TK = {
     this._last = { at: at.map(v => +v.toFixed(1)), mode: F.mode };
     try { Sfx.breakB(thrown ? 'wood' : 'grass'); if (thrown) Sfx.staticBurst(); } catch (e) { }
     if (thrown) Game.flickerPulse = Math.max(Game.flickerPulse || 0, 0.2);
-    if (!Net.isVictim()) return;   // мир ломает хозяин, урон получает каждый обычный игрок у себя
+    // мир ломает один клиент: в общем мире 666 — существо (дерево всегда рядом с ним), в обычном — хозяин; правки расходятся всем.
+    // урон получает каждый обычный игрок у себя
+    const auth = Net.shared ? (Net.role === 'guest' && Net.guestOwner) : Net.role === 'host';
+    if (!auth && !Net.isVictim()) return;
     const p = Player, R = thrown ? 3.2 + Math.min(2, n / 150) : 1.6;
-    if (Net.role === 'host') { Net.cap++;
+    if (auth) { Net.cap++;
     try {
       for (let dx = -Math.ceil(R); dx <= Math.ceil(R); dx++) for (let dy = -Math.ceil(R); dy <= Math.ceil(R); dy++) for (let dz = -Math.ceil(R); dz <= Math.ceil(R); dz++) {
         const x = Math.floor(at[0]) + dx, y = Math.floor(at[1]) + dy, z = Math.floor(at[2]) + dz;
@@ -400,6 +403,7 @@ const TK = {
     } finally { Net.cap--; }
     }
     // урон игроку: чем ближе к центру удара, тем больше
+    if (!Net.isVictim()) return;
     const d = Math.hypot(p.x - at[0], p.y + 0.9 - at[1], p.z - at[2]), reach = R + 1.5;
     if (!p.dead && d < reach) hurtPlayer(Math.ceil((thrown ? 22 : 10) * (1 - d / reach)), true);
   },

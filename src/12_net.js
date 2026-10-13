@@ -95,6 +95,7 @@ const Net = {
       .on('broadcast', { event: 'pb' }, m => TK.onPBurst(m.payload))
       .on('broadcast', { event: 'sx' }, m => TK.onStakeThrow(m.payload))
       .on('broadcast', { event: 'pt' }, m => TK.onPThrow(m.payload))
+      .on('broadcast', { event: 'sc' }, m => { const v = m.payload; if (v && v.u !== this.uid) Ents.obsStart(v); })
       .on('presence', { event: 'sync' }, () => { try { this.nPres = this.ch ? Object.keys(this.ch.presenceState()).length : 1; } catch (e) { } })
       .on('presence', { event: 'join' }, m => this.onPresJoin(m.newPresences || []))
       .on('presence', { event: 'leave' }, m => this.onPresLeave(m.leftPresences || []));
@@ -265,7 +266,7 @@ const Net = {
     if (this.sendT <= 0) {
       this.sendT = 0.15;
       const h = p.held();
-      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, st: this.cStatic ? 1 : 0, ...(this.form === 'creature' ? TK.aim() : { ag: 0, ao: 0 }) };
+      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, st: this.cStatic ? 1 : 0, dd: p.dead ? 1 : 0, ...(this.form === 'creature' ? TK.aim() : { ag: 0, ao: 0 }) };
       const sig = JSON.stringify(v), now = performance.now();
       // двигаемся или стоим — раз в 2 секунды шлём позицию, чтобы нас не сочли пропавшими
       if (!this.vanish && (sig !== this.lastSent || now - this.lastSentT > 2000)) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
@@ -308,6 +309,7 @@ const Net = {
     this.snapWait = null; this.evQueue = [];
     if (this.fxOn) this.fxClear();
     if (this.cmdOn) this.cmdClose(true);
+    Ents.obs = [];
     this.vanish = false; this.form = 'player'; Player.hs = 1; this.armSpin = false; this.shared = false; this.pendingShared = false;
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
   },
@@ -641,7 +643,14 @@ const Net = {
       Sfx[n] = function (...a) { const r = f0.apply(this, a); if (Net.role === 'host' && Net.ch) Net.send('fxs', { n, a }); return r; };
     }
   },
-  observer() { return this.role === 'guest'; },
+  // наблюдатель: гость, у которого свои события не идут (повторяет хозяина). В общем мире 666 обычные игроки живут как хозяин
+  observer() { return this.role === 'guest' && !this.isVictim(); },
+  // начало сцены существа у жертвы — остальным, чтобы они видели её в мире
+  sceneSend(k, extra) {
+    if (!this.role || !this.ch) return;
+    const p = Player;
+    this.send('sc', { u: this.uid, k, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), yaw: +p.yaw.toFixed(3), ...extra });
+  },
   fxPack() {
     const E = Ents, M = E.mutant, m = {};
     for (const k in M) { const t = typeof M[k]; if (t === 'number') m[k] = +M[k].toFixed(3); else if (t === 'boolean') m[k] = M[k]; }
@@ -652,11 +661,11 @@ const Net = {
   },
   fxActive(p) { return !!(p.m.active || p.k.some(v => v > 0.004) || p.bl || p.pc || p.fp > 0 || p.pk); },
   onFxs(v) {
-    if (this.role !== 'guest' || !v || !Game.settings.mutant || !this.FX_SFX.includes(v.n)) return;
+    if (!this.observer() || !v || !Game.settings.mutant || !this.FX_SFX.includes(v.n)) return;
     try { Sfx[v.n](...(v.a || [])); } catch (e) { }
   },
   onFx(v) {
-    if (this.role !== 'guest' || !v || !Game.settings.mutant) return;
+    if (!this.observer() || !v || !Game.settings.mutant) return;
     if (v.z) { this.fxClear(); return; }
     const E = Ents, M = E.mutant;
     this.fxT = performance.now(); this.fxOn = true;
@@ -712,8 +721,9 @@ const Net = {
   // ---------- отрисовка чужих игроков ----------
   buildAvatars(batch, cam) {
     const now = performance.now();
-    for (const q of this.peers.values()) {
+    for (const [u, q] of this.peers) {
       if (now - (q.seen || 0) > 15000 || q.m === 'c') continue;            // существо рисуется отдельной моделью
+      if (q.dd || Ents.obsHides(u)) continue;                               // погиб или сейчас в сцене существа (её рисует obsDraw)
       this.drawAv(batch, cam, q);
     }
     // F5: свой персонаж (за существо — отдельная модель, см. selfMutant)
@@ -722,6 +732,7 @@ const Net = {
     else if (Ents.slashS && Ents.slashS.ph >= 1) Ents.drawSlash(batch, cam);
     else if (Ents.burstS) Ents.drawBurst(batch, cam);
     else if (Game.view && this.form !== 'creature' && !Player.dead) this.drawAv(batch, cam, this.selfQ());
+    Ents.obsDraw(batch, cam);   // сцены существа у других игроков
     TK.draw(batch, cam);   // телекинез: деревья в воздухе и обломки
   },
   drawAv(batch, cam, q) {
@@ -772,7 +783,7 @@ const Net = {
     for (const [k, q] of this.peers) {
       let e = this.tags.get(k);
       if (!e) { e = document.createElement('div'); e.className = 'nettag'; document.body.appendChild(e); this.tags.set(k, e); }
-      if (q.m) { e.style.display = 'none'; continue; }                  // в облике существа или чёрного скина ника нет
+      if (q.m || q.dd || Ents.obsHides(k)) { e.style.display = 'none'; continue; }                  // в облике существа или чёрного скина ника нет
       const name = (q.o ? '★ ' : '') + (q.n || 'Игрок');
       if (e.textContent !== name) e.textContent = name;
       const v = m4xv(VP, q.cx - cam.x, q.cy + 2.3 - cam.y, q.cz - cam.z, 1);

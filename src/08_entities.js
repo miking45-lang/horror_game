@@ -88,6 +88,7 @@ const Ents = {
       if (SOLID[World.get(Math.floor(nx), Math.floor(ny), Math.floor(nz))]) { q.vx *= 0.3; q.vz *= 0.3; q.vy = 0; }
       else { q.x = nx; q.y = ny; q.z = nz; }
     }
+    if (this.obs.length) this.obsUpdate(dt);   // сцены существа у других игроков
     // наблюдатель (гость в чужом мире): свои события не запускаются, повторяются события хозяина
     if (typeof Net !== 'undefined' && Net.observer()) { this.fig.active = false; this.ghost.active = false; this.updateDeep(dt); Net.fxStep(dt); return; }
     if (this.killS) { this.updateKill(dt); return; }
@@ -97,7 +98,7 @@ const Ents = {
     if (this.scrS) this.updateScreamer(dt);
     this.updateFigure(dt);
     // владелец в облике существа: события существа у хозяина остановлены, помехи — от близости владельца
-    const cp = typeof Net !== 'undefined' && Net.role === 'host' ? Net.creaturePeer() : null;
+    const cp = typeof Net !== 'undefined' && Net.isVictim() ? Net.creaturePeer() : null;   // хозяин и игроки общего мира 666
     if (cp && this.morphStep) { this.morphStep(dt, cp); return; }
     if (this.morphOn) this.morphEnd();
     if (this.updateMutant) this.updateMutant(dt);

@@ -20,11 +20,11 @@ Object.assign(Ents, {
   },
   mawEnd(dead) {
     this.mawS = null; this.mawL = null; this.huntLock = false; this.mutantK = 0; this.mutantBurst = 0;
-    Portrait.P = { rise: 0, jaw: 0, push: 0, swallow: 0 }; Portrait.hide();
-    if (dead && !Player.dead) killPlayer();
+    if (!this.obsTg) { Portrait.P = { rise: 0, jaw: 0, push: 0, swallow: 0 }; Portrait.hide(); }
+    if (dead && !this.obsTg && !Player.dead) killPlayer();
   },
   updateMaw(dt) {
-    const S = this.mawS, p = Player, P = Portrait.P;
+    const S = this.mawS, p = this.tgt(), P = Portrait.P;
     S.t += dt; S.pt += dt; p.vx = 0; p.vz = 0;
     const ease = u => { u = clamp(u, 0, 1); return u * u * (3 - 2 * u); };
     this.mutantK = 0; this.mutantBurst = 0;
@@ -47,7 +47,7 @@ Object.assign(Ents, {
   },
   // сцена от третьего лица: существо склонилось над игроком, голова игрока у него во рту
   mawStart3() {
-    const p = Player, a = p.yaw;   // существо стоит перед игроком, лицом к нему
+    const p = this.tgt(), a = p.yaw;   // существо стоит перед игроком, лицом к нему
     const F = [-Math.sin(a), -Math.cos(a)];
     const L = Net.newPoseL(a);
     L.x = p.x + F[0] * 0.9; L.z = p.z + F[1] * 0.9; L.y = p.y;
@@ -55,9 +55,10 @@ Object.assign(Ents, {
     L.A = 1; L.hp = -1.9; L.walk = 0;   // в наклоне лицо смотрит вперёд-вниз, на голову игрока (не в небо)
     L.jawOpen = 0.09; L.hs = 1.4;   // склонилось: голова как раз на уровне головы игрока
     this.mawL = L;
+    if (!this.obsTg) Net.sceneSend('maw', {});   // остальные видят укус со стороны
   },
   mawStep3(dt) {
-    const S = this.mawS, L = this.mawL, p = Player;
+    const S = this.mawS, L = this.mawL, p = this.tgt();
     L.t += dt;
     // один раз ставим существо так, чтобы его голова оказалась на голове игрока (поза и разворот дальше не меняются)
     const tgt = [p.x, p.y + 1.75, p.z];
@@ -68,8 +69,8 @@ Object.assign(Ents, {
     // челюсти смыкаются на 0,8 с — голова откушена
     L.jawOpen = S.pt < 0.8 ? 0.09 * (1 - S.pt / 0.8) : 0.004;
     if (!S.bitten && S.pt >= 0.8) {
-      S.bitten = true; Game.flickerPulse = 0.25;
-      try { Sfx.hurt(); Sfx.staticBurst(); } catch (e) { }
+      S.bitten = true; if (!this.obsTg) Game.flickerPulse = 0.25;
+      try { if (this.sfxOk()) { Sfx.hurt(); Sfx.staticBurst(); } } catch (e) { }
     }
     // кровь из шеи
     if (S.bitten && S.pt < 2.6) {
@@ -101,7 +102,7 @@ Object.assign(Ents, {
   // игрок от третьего лица: после укуса — без головы, кровь
   drawMaw(batch, cam) {
     const S = this.mawS; if (!S || S.ph < 3) return;
-    const p = Player, q = { cx: p.x, cy: p.y, cz: p.z, cya: p.yaw, pi: 0, s: 0, walk: 0, wph: 0, m: '', o: 0 };
+    const p = this.tgt(), q = { cx: p.x, cy: p.y, cz: p.z, cya: p.yaw, pi: 0, s: 0, walk: 0, wph: 0, m: '', o: 0 };
     if (!S.bitten) Net.drawAv(batch, cam, q);
     else {
       const l = World.light(Math.floor(p.x), Math.floor(p.y + 1), Math.floor(p.z)), sky = (l >> 4) / 15, blk = (l & 15) / 15;

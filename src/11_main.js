@@ -510,7 +510,7 @@ const Game = {
     const scene = {
       ents: Ents.build(this.batches.ents, cam), figure: fig, figureColor: [0.022, 0.02, 0.026, 1],
       crack: tg.crack, outline: tg.outline, hand: (UI.hideHud || p.dead || this.view || sceneCam || Ents.mawS || Ents.slashS || Ents.burstS) ? null : this.buildHand(),
-      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Ents.killL || Ents.mawL || Ents.slashL || Net.morphMutant() || Net.selfMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
+      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Ents.killL || Ents.mawL || Ents.slashL || Ents.obsCreature() || Net.morphMutant() || Net.selfMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
       ghost: Ents.buildMutant(this.batches.ghost, this.batches.ghostEyes, cam, Ents.ghost), ghostEyes: this.batches.ghostEyes
     };
     this._tvT = (this._tvT || 0) - dt;

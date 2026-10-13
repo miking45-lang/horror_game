@@ -14,20 +14,26 @@ Object.assign(Ents, {
     let sx, sz;
     if (from && Number.isFinite(from.x) && Math.hypot(from.x - p.x, from.z - p.z) < 60 && Math.hypot(from.x - p.x, from.z - p.z) > 3) { sx = from.x; sz = from.z; }
     else { const d = lookDir(), n = Math.hypot(d[0], d[2]) || 1; sx = p.x + d[0] / n * 16; sz = p.z + d[2] / n * 16; }
+    const hs = (from && from.hs) || 1;
+    this.killInit(sx, sz, hs);
+    Net.sceneSend('kill', { sx: +sx.toFixed(2), sz: +sz.toFixed(2), hs });   // остальные игроки видят сцену у себя
+    return true;
+  },
+  // состояние сцены (у жертвы и у наблюдателей одинаково); цель — this.tgt()
+  killInit(sx, sz, hs) {
     const L = Net.newPoseL(0);
-    L.x = sx; L.z = sz; L.y = World.topY(Math.floor(sx), Math.floor(sz)) + 1; L.hs = (from && from.hs) || 1;
+    L.x = sx; L.z = sz; L.y = World.topY(Math.floor(sx), Math.floor(sz)) + 1; L.hs = hs || 1;
     L.walk = 1; L.wph = 0; L.armA = 0; L.armSpread = 0; L.hp = 0; L.hy = 0; L.hroll = 0;
     this.killL = L;
     this.killS = { t: 0, ph: 0, pt: 0, lift: 0, sep: 0, blood: [], pool: 0, cam: null, screamed: false };
     this.huntLock = true;
-    return true;
   },
   killEnd(dead) {
     this.killS = null; this.killL = null; this.huntLock = false; this.mutantK = 0; this.mutantBurst = 0;
-    if (dead && !Player.dead) killPlayer();
+    if (dead && !this.obsTg && !Player.dead) killPlayer();
   },
   updateKill(dt) {
-    const S = this.killS, L = this.killL, p = Player, hs = L.hs || 1;
+    const S = this.killS, L = this.killL, p = this.tgt(), hs = L.hs || 1;
     S.t += dt; S.pt += dt; L.t += dt;
     p.vx = 0; p.vz = 0;
     const gY = (x, z) => World.topY(Math.floor(x), Math.floor(z)) + 1;
@@ -42,12 +48,12 @@ Object.assign(Ents, {
       let dy = Math.atan2(-(L.x - p.x), -(L.z - p.z)) - p.yaw; dy = ((dy + Math.PI) % PI2 + PI2) % PI2 - Math.PI;
       p.yaw += dy * Math.min(1, dt * 4); p.pitch += (0.15 - p.pitch) * Math.min(1, dt * 3);
       this.mutantK = Math.min(0.95, Math.pow(clamp((30 - d) / 27, 0, 1), 1.3));
-      if (Math.random() < dt * 6 * this.mutantK) Game.flickerPulse = 0.12;
-      if (d <= 1.45 * hs + 0.05 || S.pt > 6) { S.ph = 1; S.pt = 0; this.mutantK = 0; this.mutantBurst = 0; Game.flickerPulse = 0; L.walk = 0; }
+      if (Math.random() < dt * 6 * this.mutantK) if (!this.obsTg) Game.flickerPulse = 0.12;
+      if (d <= 1.45 * hs + 0.05 || S.pt > 6) { S.ph = 1; S.pt = 0; this.mutantK = 0; this.mutantBurst = 0; if (!this.obsTg) Game.flickerPulse = 0; L.walk = 0; }
       return;
     }
     // дальше — вид со стороны, без помех
-    this.mutantK = 0; this.mutantBurst = 0; Game.flickerPulse = 0;
+    this.mutantK = 0; this.mutantBurst = 0; if (!this.obsTg) Game.flickerPulse = 0;
     L.yaw = L.by = toP; L.walk = Math.max(0, L.walk - dt * 4);
     const ease = u => { u = clamp(u, 0, 1); return u * u * (3 - 2 * u); };
     if (S.ph === 1) {            // хватает и плавно поднимает над собой (3 с)
@@ -58,7 +64,7 @@ Object.assign(Ents, {
       const u = ease(S.pt / 5);
       L.armA = 2.8; L.hp = -0.75; L.armSpread = 0.6 * u; S.sep = u;
       L.hroll = Math.sin(S.t * 23) * 0.04 * (1 - u);
-      if (!S.screamed && S.pt > 0.4) { S.screamed = true; try { Sfx.scream(); } catch (e) { } }
+      if (!S.screamed && S.pt > 0.4) { S.screamed = true; try { if (this.sfxOk()) Sfx.scream(); } catch (e) { } }
       if (S.pt >= 5) { S.ph = 3; S.pt = 0; }
     } else {                     // держит, кровь стекает (2,5 с), затем смерть
       L.armSpread = 0.6; L.hroll = 0;
@@ -109,7 +115,7 @@ Object.assign(Ents, {
   },
   // где сейчас жертва: центр над головой существа, ось тела — вдоль рук (вправо от существа)
   victimFrame() {
-    const S = this.killS, L = this.killL, p = Player, hs = L.hs || 1;
+    const S = this.killS, L = this.killL, p = this.tgt(), hs = L.hs || 1;
     const a = L.yaw, F = [Math.sin(a), 0, Math.cos(a)], R = [Math.cos(a), 0, -Math.sin(a)];
     const sp = L.armSpread || 0;
     const top = [L.x + F[0] * 0.55 * hs, L.y + (2.75 + 2.25 * Math.cos(sp)) * hs - 0.15, L.z + F[2] * 0.55 * hs];

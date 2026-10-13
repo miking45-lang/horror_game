@@ -10,7 +10,15 @@ Object.assign(Ents, {
     if (this.burstS || this.killS || this.mawS || this.slashS || p.dead || Game.state !== 'play') return false;
     if (this.stopMutantEvents) this.stopMutantEvents();
     if (UI.gui) UI.closeScreen();
-    const C = [p.x, p.y + 1.0, p.z], R = () => (Math.random() - 0.5);
+    const pv = this.burstInit();
+    Net.sceneSend('burst', { pv });   // остальные видят разрыв у себя (с теми же разлётами частей)
+    try { Sfx.gore(); } catch (e) { }
+    Game.flickerPulse = 0.3;
+    return true;
+  },
+  // pv — скорости и вращения частей [vx,vy,vz,wx,wy,wz]×6 (у наблюдателей — как у жертвы)
+  burstInit(pv) {
+    const p = this.tgt(), C = [p.x, p.y + 1.0, p.z], R = () => (Math.random() - 0.5);
     // части тела: размеры (полуоси) и где их центр относительно центра тела
     const defs = [
       { k: 'legL', h: [0.125, 0.375, 0.125], o: [-0.125, -0.625, 0], t: 'pants' },
@@ -21,11 +29,14 @@ Object.assign(Ents, {
       { k: 'head', h: [0.25, 0.25, 0.25], o: [0, 0.75, 0], t: 'head' }
     ];
     const c = Math.cos(p.yaw), s = Math.sin(p.yaw);
-    const parts = defs.map(d => {
+    const ok = Array.isArray(pv) && pv.length === 36 && pv.every(Number.isFinite), out = [];
+    const parts = defs.map((d, i) => {
       const ox = d.o[0] * c + d.o[2] * s, oz = -d.o[0] * s + d.o[2] * c, n = Math.hypot(ox, d.o[1], oz) || 1;
       const sp = 7 + Math.random() * 5;
-      return { ...d, p: [C[0] + ox, C[1] + d.o[1], C[2] + oz], v: [ox / n * sp + R() * 4, d.o[1] / n * sp * 0.6 + 5 + Math.random() * 4, oz / n * sp + R() * 4],
-        a: [0, p.yaw, 0], w: [R() * 14, R() * 14, R() * 14], rest: false, trail: 0 };
+      const v = ok ? pv.slice(i * 6, i * 6 + 3) : [ox / n * sp + R() * 4, d.o[1] / n * sp * 0.6 + 5 + Math.random() * 4, oz / n * sp + R() * 4];
+      const w = ok ? pv.slice(i * 6 + 3, i * 6 + 6) : [R() * 14, R() * 14, R() * 14];
+      out.push(...v.map(x => +x.toFixed(2)), ...w.map(x => +x.toFixed(2)));
+      return { ...d, p: [C[0] + ox, C[1] + d.o[1], C[2] + oz], v, a: [0, p.yaw, 0], w, rest: false, trail: 0 };
     });
     const blood = [];
     for (let i = 0; i < 260; i++) {
@@ -34,12 +45,10 @@ Object.assign(Ents, {
     }
     this.burstS = { t: 0, C, parts, blood, cam: null, camDir: null, flash: 1 };
     this.huntLock = true; this.mutantK = 0; this.mutantBurst = 0;
-    try { Sfx.gore(); } catch (e) { }
-    Game.flickerPulse = 0.3;
-    return true;
+    return out;
   },
   updateBurst(dt) {
-    const S = this.burstS, p = Player; S.t += dt; p.vx = p.vz = 0; this.mutantK = 0; this.mutantBurst = 0;
+    const S = this.burstS, p = this.tgt(); S.t += dt; p.vx = p.vz = 0; this.mutantK = 0; this.mutantBurst = 0;
     S.flash = Math.max(0, S.flash - dt * 3);
     const gy = (x, z) => World.topY(Math.floor(x), Math.floor(z)) + 1;
     for (const q of S.parts) {
@@ -83,7 +92,7 @@ Object.assign(Ents, {
   },
   burstEnd(dead) {
     this.burstS = null; this.huntLock = false; this.mutantK = 0;
-    if (dead && !Player.dead) killPlayer();
+    if (dead && !this.obsTg && !Player.dead) killPlayer();
   },
   drawBurst(batch, cam) {
     const S = this.burstS; if (!S) return;

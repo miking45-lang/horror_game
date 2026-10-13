@@ -20,10 +20,10 @@ Object.assign(Ents, {
   },
   slashEnd(dead) {
     this.slashS = null; this.slashL = null; this.huntLock = false; this.mutantK = 0; this.mutantBurst = 0;
-    if (dead && !Player.dead) killPlayer();
+    if (dead && !this.obsTg && !Player.dead) killPlayer();
   },
   updateSlash(dt) {
-    const S = this.slashS, p = Player;
+    const S = this.slashS, p = this.tgt();
     S.t += dt; S.pt += dt; p.vx = 0; p.vz = 0; this.mutantK = 0; this.mutantBurst = 0;
     const ease = u => { u = clamp(u, 0, 1); return u * u * (3 - 2 * u); };
     if (S.ph === 0) {                 // от первого лица: экран заваливается набок и падает
@@ -57,7 +57,7 @@ Object.assign(Ents, {
     }
     const prevSide = (L.yaw - S.yawMid) * S.side;
     L.yaw = L.by = S.yawMid + S.side * yw;
-    if (!S.cut && tt >= TW && prevSide > 0 && yw <= 0) { S.cut = true; S.cutT = S.pt; Game.flickerPulse = 0.2; try { Sfx.hurt(); Sfx.staticBurst(); } catch (e) { } }
+    if (!S.cut && tt >= TW && prevSide > 0 && yw <= 0) { S.cut = true; S.cutT = S.pt; if (!this.obsTg) Game.flickerPulse = 0.2; try { if (this.sfxOk()) { Sfx.hurt(); Sfx.staticBurst(); } } catch (e) { } }
     if (S.cut) {
       const u = clamp((S.pt - S.cutT) / 1.0, 0, 1);
       S.fall = ease(u);
@@ -90,7 +90,7 @@ Object.assign(Ents, {
   },
   // существо встаёт рядом (рука, отведённая в сторону и вниз, достаёт до пояса игрока)
   slashStart1() {
-    const S = this.slashS, p = Player, hs = S.hs;
+    const S = this.slashS, p = this.tgt(), hs = S.hs;
     let dx = S.from[0] - p.x, dz = S.from[1] - p.z, d = Math.hypot(dx, dz);
     if (d < 0.3) { dx = -Math.sin(p.yaw); dz = -Math.cos(p.yaw); d = 1; }
     const reach = 0.235 * hs + 1.4 * hs;
@@ -107,16 +107,17 @@ Object.assign(Ents, {
     S.yawMid = Math.atan2(-tz, tx);
     L.yaw = L.by = S.yawMid + S.side * 1.1;
     this.slashL = L;
+    if (!this.obsTg) Net.sceneSend('slash', { fx: +S.from[0].toFixed(2), fz: +S.from[1].toFixed(2), hs: S.hs, side: S.side });   // остальные видят удар со стороны
   },
   // где сейчас срез на туловище (для крови)
   slashTorsoCut() {
-    const S = this.slashS, p = Player, f = S.fall || 0, c = Math.cos(p.yaw), s = Math.sin(p.yaw);
+    const S = this.slashS, p = this.tgt(), f = S.fall || 0, c = Math.cos(p.yaw), s = Math.sin(p.yaw);
     const lx = -S.side * 0.35 * f, ly = 0.75 - 0.5 * f * f;
     return [p.x + lx * c, p.y + ly, p.z - lx * s];
   },
   drawSlash(batch, cam) {
     const S = this.slashS; if (!S || S.ph < 1) return;
-    const p = Player, l = World.light(Math.floor(p.x), Math.floor(p.y + 1), Math.floor(p.z)), sky = (l >> 4) / 15, blk = (l & 15) / 15;
+    const p = this.tgt(), l = World.light(Math.floor(p.x), Math.floor(p.y + 1), Math.floor(p.z)), sky = (l >> 4) / 15, blk = (l & 15) / 15;
     const c = Math.cos(p.yaw), s = Math.sin(p.yaw), base = (x, y, z) => [p.x + x * c + z * s - cam.x, p.y + y - cam.y, p.z - x * s + z * c - cam.z];
     const S6 = t => [t, t, t, t, t, t], sh = TILE.av_shirt, sk = TILE.av_skin, BL = TILE.blood;
     // ноги — стоят на месте

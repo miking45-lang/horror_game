@@ -4703,6 +4703,7 @@ const Ents = {
       if (SOLID[World.get(Math.floor(nx), Math.floor(ny), Math.floor(nz))]) { q.vx *= 0.3; q.vz *= 0.3; q.vy = 0; }
       else { q.x = nx; q.y = ny; q.z = nz; }
     }
+    if (this.obs.length) this.obsUpdate(dt);   // сцены существа у других игроков
     // наблюдатель (гость в чужом мире): свои события не запускаются, повторяются события хозяина
     if (typeof Net !== 'undefined' && Net.observer()) { this.fig.active = false; this.ghost.active = false; this.updateDeep(dt); Net.fxStep(dt); return; }
     if (this.killS) { this.updateKill(dt); return; }
@@ -4712,7 +4713,7 @@ const Ents = {
     if (this.scrS) this.updateScreamer(dt);
     this.updateFigure(dt);
     // владелец в облике существа: события существа у хозяина остановлены, помехи — от близости владельца
-    const cp = typeof Net !== 'undefined' && Net.role === 'host' ? Net.creaturePeer() : null;
+    const cp = typeof Net !== 'undefined' && Net.isVictim() ? Net.creaturePeer() : null;   // хозяин и игроки общего мира 666
     if (cp && this.morphStep) { this.morphStep(dt, cp); return; }
     if (this.morphOn) this.morphEnd();
     if (this.updateMutant) this.updateMutant(dt);
@@ -6485,20 +6486,26 @@ Object.assign(Ents, {
     let sx, sz;
     if (from && Number.isFinite(from.x) && Math.hypot(from.x - p.x, from.z - p.z) < 60 && Math.hypot(from.x - p.x, from.z - p.z) > 3) { sx = from.x; sz = from.z; }
     else { const d = lookDir(), n = Math.hypot(d[0], d[2]) || 1; sx = p.x + d[0] / n * 16; sz = p.z + d[2] / n * 16; }
+    const hs = (from && from.hs) || 1;
+    this.killInit(sx, sz, hs);
+    Net.sceneSend('kill', { sx: +sx.toFixed(2), sz: +sz.toFixed(2), hs });   // остальные игроки видят сцену у себя
+    return true;
+  },
+  // состояние сцены (у жертвы и у наблюдателей одинаково); цель — this.tgt()
+  killInit(sx, sz, hs) {
     const L = Net.newPoseL(0);
-    L.x = sx; L.z = sz; L.y = World.topY(Math.floor(sx), Math.floor(sz)) + 1; L.hs = (from && from.hs) || 1;
+    L.x = sx; L.z = sz; L.y = World.topY(Math.floor(sx), Math.floor(sz)) + 1; L.hs = hs || 1;
     L.walk = 1; L.wph = 0; L.armA = 0; L.armSpread = 0; L.hp = 0; L.hy = 0; L.hroll = 0;
     this.killL = L;
     this.killS = { t: 0, ph: 0, pt: 0, lift: 0, sep: 0, blood: [], pool: 0, cam: null, screamed: false };
     this.huntLock = true;
-    return true;
   },
   killEnd(dead) {
     this.killS = null; this.killL = null; this.huntLock = false; this.mutantK = 0; this.mutantBurst = 0;
-    if (dead && !Player.dead) killPlayer();
+    if (dead && !this.obsTg && !Player.dead) killPlayer();
   },
   updateKill(dt) {
-    const S = this.killS, L = this.killL, p = Player, hs = L.hs || 1;
+    const S = this.killS, L = this.killL, p = this.tgt(), hs = L.hs || 1;
     S.t += dt; S.pt += dt; L.t += dt;
     p.vx = 0; p.vz = 0;
     const gY = (x, z) => World.topY(Math.floor(x), Math.floor(z)) + 1;
@@ -6513,12 +6520,12 @@ Object.assign(Ents, {
       let dy = Math.atan2(-(L.x - p.x), -(L.z - p.z)) - p.yaw; dy = ((dy + Math.PI) % PI2 + PI2) % PI2 - Math.PI;
       p.yaw += dy * Math.min(1, dt * 4); p.pitch += (0.15 - p.pitch) * Math.min(1, dt * 3);
       this.mutantK = Math.min(0.95, Math.pow(clamp((30 - d) / 27, 0, 1), 1.3));
-      if (Math.random() < dt * 6 * this.mutantK) Game.flickerPulse = 0.12;
-      if (d <= 1.45 * hs + 0.05 || S.pt > 6) { S.ph = 1; S.pt = 0; this.mutantK = 0; this.mutantBurst = 0; Game.flickerPulse = 0; L.walk = 0; }
+      if (Math.random() < dt * 6 * this.mutantK) if (!this.obsTg) Game.flickerPulse = 0.12;
+      if (d <= 1.45 * hs + 0.05 || S.pt > 6) { S.ph = 1; S.pt = 0; this.mutantK = 0; this.mutantBurst = 0; if (!this.obsTg) Game.flickerPulse = 0; L.walk = 0; }
       return;
     }
     // дальше — вид со стороны, без помех
-    this.mutantK = 0; this.mutantBurst = 0; Game.flickerPulse = 0;
+    this.mutantK = 0; this.mutantBurst = 0; if (!this.obsTg) Game.flickerPulse = 0;
     L.yaw = L.by = toP; L.walk = Math.max(0, L.walk - dt * 4);
     const ease = u => { u = clamp(u, 0, 1); return u * u * (3 - 2 * u); };
     if (S.ph === 1) {            // хватает и плавно поднимает над собой (3 с)
@@ -6529,7 +6536,7 @@ Object.assign(Ents, {
       const u = ease(S.pt / 5);
       L.armA = 2.8; L.hp = -0.75; L.armSpread = 0.6 * u; S.sep = u;
       L.hroll = Math.sin(S.t * 23) * 0.04 * (1 - u);
-      if (!S.screamed && S.pt > 0.4) { S.screamed = true; try { Sfx.scream(); } catch (e) { } }
+      if (!S.screamed && S.pt > 0.4) { S.screamed = true; try { if (this.sfxOk()) Sfx.scream(); } catch (e) { } }
       if (S.pt >= 5) { S.ph = 3; S.pt = 0; }
     } else {                     // держит, кровь стекает (2,5 с), затем смерть
       L.armSpread = 0.6; L.hroll = 0;
@@ -6580,7 +6587,7 @@ Object.assign(Ents, {
   },
   // где сейчас жертва: центр над головой существа, ось тела — вдоль рук (вправо от существа)
   victimFrame() {
-    const S = this.killS, L = this.killL, p = Player, hs = L.hs || 1;
+    const S = this.killS, L = this.killL, p = this.tgt(), hs = L.hs || 1;
     const a = L.yaw, F = [Math.sin(a), 0, Math.cos(a)], R = [Math.cos(a), 0, -Math.sin(a)];
     const sp = L.armSpread || 0;
     const top = [L.x + F[0] * 0.55 * hs, L.y + (2.75 + 2.25 * Math.cos(sp)) * hs - 0.15, L.z + F[2] * 0.55 * hs];
@@ -6667,11 +6674,11 @@ Object.assign(Ents, {
   },
   mawEnd(dead) {
     this.mawS = null; this.mawL = null; this.huntLock = false; this.mutantK = 0; this.mutantBurst = 0;
-    Portrait.P = { rise: 0, jaw: 0, push: 0, swallow: 0 }; Portrait.hide();
-    if (dead && !Player.dead) killPlayer();
+    if (!this.obsTg) { Portrait.P = { rise: 0, jaw: 0, push: 0, swallow: 0 }; Portrait.hide(); }
+    if (dead && !this.obsTg && !Player.dead) killPlayer();
   },
   updateMaw(dt) {
-    const S = this.mawS, p = Player, P = Portrait.P;
+    const S = this.mawS, p = this.tgt(), P = Portrait.P;
     S.t += dt; S.pt += dt; p.vx = 0; p.vz = 0;
     const ease = u => { u = clamp(u, 0, 1); return u * u * (3 - 2 * u); };
     this.mutantK = 0; this.mutantBurst = 0;
@@ -6694,7 +6701,7 @@ Object.assign(Ents, {
   },
   // сцена от третьего лица: существо склонилось над игроком, голова игрока у него во рту
   mawStart3() {
-    const p = Player, a = p.yaw;   // существо стоит перед игроком, лицом к нему
+    const p = this.tgt(), a = p.yaw;   // существо стоит перед игроком, лицом к нему
     const F = [-Math.sin(a), -Math.cos(a)];
     const L = Net.newPoseL(a);
     L.x = p.x + F[0] * 0.9; L.z = p.z + F[1] * 0.9; L.y = p.y;
@@ -6702,9 +6709,10 @@ Object.assign(Ents, {
     L.A = 1; L.hp = -1.9; L.walk = 0;   // в наклоне лицо смотрит вперёд-вниз, на голову игрока (не в небо)
     L.jawOpen = 0.09; L.hs = 1.4;   // склонилось: голова как раз на уровне головы игрока
     this.mawL = L;
+    if (!this.obsTg) Net.sceneSend('maw', {});   // остальные видят укус со стороны
   },
   mawStep3(dt) {
-    const S = this.mawS, L = this.mawL, p = Player;
+    const S = this.mawS, L = this.mawL, p = this.tgt();
     L.t += dt;
     // один раз ставим существо так, чтобы его голова оказалась на голове игрока (поза и разворот дальше не меняются)
     const tgt = [p.x, p.y + 1.75, p.z];
@@ -6715,8 +6723,8 @@ Object.assign(Ents, {
     // челюсти смыкаются на 0,8 с — голова откушена
     L.jawOpen = S.pt < 0.8 ? 0.09 * (1 - S.pt / 0.8) : 0.004;
     if (!S.bitten && S.pt >= 0.8) {
-      S.bitten = true; Game.flickerPulse = 0.25;
-      try { Sfx.hurt(); Sfx.staticBurst(); } catch (e) { }
+      S.bitten = true; if (!this.obsTg) Game.flickerPulse = 0.25;
+      try { if (this.sfxOk()) { Sfx.hurt(); Sfx.staticBurst(); } } catch (e) { }
     }
     // кровь из шеи
     if (S.bitten && S.pt < 2.6) {
@@ -6748,7 +6756,7 @@ Object.assign(Ents, {
   // игрок от третьего лица: после укуса — без головы, кровь
   drawMaw(batch, cam) {
     const S = this.mawS; if (!S || S.ph < 3) return;
-    const p = Player, q = { cx: p.x, cy: p.y, cz: p.z, cya: p.yaw, pi: 0, s: 0, walk: 0, wph: 0, m: '', o: 0 };
+    const p = this.tgt(), q = { cx: p.x, cy: p.y, cz: p.z, cya: p.yaw, pi: 0, s: 0, walk: 0, wph: 0, m: '', o: 0 };
     if (!S.bitten) Net.drawAv(batch, cam, q);
     else {
       const l = World.light(Math.floor(p.x), Math.floor(p.y + 1), Math.floor(p.z)), sky = (l >> 4) / 15, blk = (l & 15) / 15;
@@ -6791,10 +6799,10 @@ Object.assign(Ents, {
   },
   slashEnd(dead) {
     this.slashS = null; this.slashL = null; this.huntLock = false; this.mutantK = 0; this.mutantBurst = 0;
-    if (dead && !Player.dead) killPlayer();
+    if (dead && !this.obsTg && !Player.dead) killPlayer();
   },
   updateSlash(dt) {
-    const S = this.slashS, p = Player;
+    const S = this.slashS, p = this.tgt();
     S.t += dt; S.pt += dt; p.vx = 0; p.vz = 0; this.mutantK = 0; this.mutantBurst = 0;
     const ease = u => { u = clamp(u, 0, 1); return u * u * (3 - 2 * u); };
     if (S.ph === 0) {                 // от первого лица: экран заваливается набок и падает
@@ -6828,7 +6836,7 @@ Object.assign(Ents, {
     }
     const prevSide = (L.yaw - S.yawMid) * S.side;
     L.yaw = L.by = S.yawMid + S.side * yw;
-    if (!S.cut && tt >= TW && prevSide > 0 && yw <= 0) { S.cut = true; S.cutT = S.pt; Game.flickerPulse = 0.2; try { Sfx.hurt(); Sfx.staticBurst(); } catch (e) { } }
+    if (!S.cut && tt >= TW && prevSide > 0 && yw <= 0) { S.cut = true; S.cutT = S.pt; if (!this.obsTg) Game.flickerPulse = 0.2; try { if (this.sfxOk()) { Sfx.hurt(); Sfx.staticBurst(); } } catch (e) { } }
     if (S.cut) {
       const u = clamp((S.pt - S.cutT) / 1.0, 0, 1);
       S.fall = ease(u);
@@ -6861,7 +6869,7 @@ Object.assign(Ents, {
   },
   // существо встаёт рядом (рука, отведённая в сторону и вниз, достаёт до пояса игрока)
   slashStart1() {
-    const S = this.slashS, p = Player, hs = S.hs;
+    const S = this.slashS, p = this.tgt(), hs = S.hs;
     let dx = S.from[0] - p.x, dz = S.from[1] - p.z, d = Math.hypot(dx, dz);
     if (d < 0.3) { dx = -Math.sin(p.yaw); dz = -Math.cos(p.yaw); d = 1; }
     const reach = 0.235 * hs + 1.4 * hs;
@@ -6878,16 +6886,17 @@ Object.assign(Ents, {
     S.yawMid = Math.atan2(-tz, tx);
     L.yaw = L.by = S.yawMid + S.side * 1.1;
     this.slashL = L;
+    if (!this.obsTg) Net.sceneSend('slash', { fx: +S.from[0].toFixed(2), fz: +S.from[1].toFixed(2), hs: S.hs, side: S.side });   // остальные видят удар со стороны
   },
   // где сейчас срез на туловище (для крови)
   slashTorsoCut() {
-    const S = this.slashS, p = Player, f = S.fall || 0, c = Math.cos(p.yaw), s = Math.sin(p.yaw);
+    const S = this.slashS, p = this.tgt(), f = S.fall || 0, c = Math.cos(p.yaw), s = Math.sin(p.yaw);
     const lx = -S.side * 0.35 * f, ly = 0.75 - 0.5 * f * f;
     return [p.x + lx * c, p.y + ly, p.z - lx * s];
   },
   drawSlash(batch, cam) {
     const S = this.slashS; if (!S || S.ph < 1) return;
-    const p = Player, l = World.light(Math.floor(p.x), Math.floor(p.y + 1), Math.floor(p.z)), sky = (l >> 4) / 15, blk = (l & 15) / 15;
+    const p = this.tgt(), l = World.light(Math.floor(p.x), Math.floor(p.y + 1), Math.floor(p.z)), sky = (l >> 4) / 15, blk = (l & 15) / 15;
     const c = Math.cos(p.yaw), s = Math.sin(p.yaw), base = (x, y, z) => [p.x + x * c + z * s - cam.x, p.y + y - cam.y, p.z - x * s + z * c - cam.z];
     const S6 = t => [t, t, t, t, t, t], sh = TILE.av_shirt, sk = TILE.av_skin, BL = TILE.blood;
     // ноги — стоят на месте
@@ -6921,7 +6930,15 @@ Object.assign(Ents, {
     if (this.burstS || this.killS || this.mawS || this.slashS || p.dead || Game.state !== 'play') return false;
     if (this.stopMutantEvents) this.stopMutantEvents();
     if (UI.gui) UI.closeScreen();
-    const C = [p.x, p.y + 1.0, p.z], R = () => (Math.random() - 0.5);
+    const pv = this.burstInit();
+    Net.sceneSend('burst', { pv });   // остальные видят разрыв у себя (с теми же разлётами частей)
+    try { Sfx.gore(); } catch (e) { }
+    Game.flickerPulse = 0.3;
+    return true;
+  },
+  // pv — скорости и вращения частей [vx,vy,vz,wx,wy,wz]×6 (у наблюдателей — как у жертвы)
+  burstInit(pv) {
+    const p = this.tgt(), C = [p.x, p.y + 1.0, p.z], R = () => (Math.random() - 0.5);
     // части тела: размеры (полуоси) и где их центр относительно центра тела
     const defs = [
       { k: 'legL', h: [0.125, 0.375, 0.125], o: [-0.125, -0.625, 0], t: 'pants' },
@@ -6932,11 +6949,14 @@ Object.assign(Ents, {
       { k: 'head', h: [0.25, 0.25, 0.25], o: [0, 0.75, 0], t: 'head' }
     ];
     const c = Math.cos(p.yaw), s = Math.sin(p.yaw);
-    const parts = defs.map(d => {
+    const ok = Array.isArray(pv) && pv.length === 36 && pv.every(Number.isFinite), out = [];
+    const parts = defs.map((d, i) => {
       const ox = d.o[0] * c + d.o[2] * s, oz = -d.o[0] * s + d.o[2] * c, n = Math.hypot(ox, d.o[1], oz) || 1;
       const sp = 7 + Math.random() * 5;
-      return { ...d, p: [C[0] + ox, C[1] + d.o[1], C[2] + oz], v: [ox / n * sp + R() * 4, d.o[1] / n * sp * 0.6 + 5 + Math.random() * 4, oz / n * sp + R() * 4],
-        a: [0, p.yaw, 0], w: [R() * 14, R() * 14, R() * 14], rest: false, trail: 0 };
+      const v = ok ? pv.slice(i * 6, i * 6 + 3) : [ox / n * sp + R() * 4, d.o[1] / n * sp * 0.6 + 5 + Math.random() * 4, oz / n * sp + R() * 4];
+      const w = ok ? pv.slice(i * 6 + 3, i * 6 + 6) : [R() * 14, R() * 14, R() * 14];
+      out.push(...v.map(x => +x.toFixed(2)), ...w.map(x => +x.toFixed(2)));
+      return { ...d, p: [C[0] + ox, C[1] + d.o[1], C[2] + oz], v, a: [0, p.yaw, 0], w, rest: false, trail: 0 };
     });
     const blood = [];
     for (let i = 0; i < 260; i++) {
@@ -6945,12 +6965,10 @@ Object.assign(Ents, {
     }
     this.burstS = { t: 0, C, parts, blood, cam: null, camDir: null, flash: 1 };
     this.huntLock = true; this.mutantK = 0; this.mutantBurst = 0;
-    try { Sfx.gore(); } catch (e) { }
-    Game.flickerPulse = 0.3;
-    return true;
+    return out;
   },
   updateBurst(dt) {
-    const S = this.burstS, p = Player; S.t += dt; p.vx = p.vz = 0; this.mutantK = 0; this.mutantBurst = 0;
+    const S = this.burstS, p = this.tgt(); S.t += dt; p.vx = p.vz = 0; this.mutantK = 0; this.mutantBurst = 0;
     S.flash = Math.max(0, S.flash - dt * 3);
     const gy = (x, z) => World.topY(Math.floor(x), Math.floor(z)) + 1;
     for (const q of S.parts) {
@@ -6994,7 +7012,7 @@ Object.assign(Ents, {
   },
   burstEnd(dead) {
     this.burstS = null; this.huntLock = false; this.mutantK = 0;
-    if (dead && !Player.dead) killPlayer();
+    if (dead && !this.obsTg && !Player.dead) killPlayer();
   },
   drawBurst(batch, cam) {
     const S = this.burstS; if (!S) return;
@@ -7026,6 +7044,74 @@ Object.assign(Ents, {
       for (let i = 0; i < 6; i++) { const rr = r * (0.5 + 0.5 * Math.sin(i * 1.7 + S.t * 9)); avBox(batch, -rr, -rr * 0.8, -rr, rr, rr * 0.8, rr, S6(BL), (x, y, z) => T(x * Math.cos(i) - z * Math.sin(i), y, x * Math.sin(i) + z * Math.cos(i)), Math.max(0.8, sky), Math.max(blk, 0.6)); }
     }
   }
+});
+
+// ============================================================
+//  Сцены существа глазами остальных игроков.
+//  Жертва (хозяин мира или игрок в общем мире 666) рассылает начало сцены ('sc'),
+//  а у всех остальных — включая владельца-существо — та же сцена проигрывается в мире,
+//  на месте жертвы: без камеры, смерти и вспышек экрана, со звуком только поблизости.
+//  Каждая копия сцены — отдельный объект поверх Ents (Object.create), поэтому
+//  её состояние (killS, mawS, …, huntLock, mutantK) не смешивается с вашим.
+// ============================================================
+Object.assign(Ents, {
+  obs: [],
+  obsTg: null,
+  // цель сцены: у жертвы — сам игрок, у наблюдателя — неподвижная копия жертвы
+  tgt() { return this.obsTg || Player; },
+  // звук сцены: у жертвы всегда, у наблюдателя — только рядом
+  sfxOk() { const t = this.obsTg; return !t || Math.hypot(t.x - Player.x, t.y - Player.y, t.z - Player.z) < 32; },
+  obsStart(v) {
+    if (!v || typeof v.u !== 'string' || !['kill', 'maw', 'slash', 'burst'].includes(v.k)) return;
+    if (![v.x, v.y, v.z].every(Number.isFinite) || Game.state !== 'play') return;
+    if (Math.hypot(v.x - Player.x, v.z - Player.z) > 140) return;            // далеко — не видно и мир там может быть не загружен
+    this.obs = this.obs.filter(o => o.u !== v.u);
+    if (this.obs.length >= 4) return;
+    const c = Object.create(Ents);
+    c.obsTg = { x: v.x, y: v.y, z: v.z, yaw: Number.isFinite(v.yaw) ? v.yaw : 0, pitch: 0, vx: 0, vy: 0, vz: 0, dead: false };
+    c.killS = c.killL = c.mawS = c.mawL = c.slashS = c.slashL = c.burstS = null;
+    c.huntLock = false; c.mutantK = 0; c.mutantBurst = 0;
+    try {
+      if (v.k === 'kill') c.killInit(+v.sx, +v.sz, clamp(+v.hs || 1, 0.5, 10));
+      else if (v.k === 'maw') { c.mawS = { ph: 3, pt: 0, t: 0, roarDur: 0, blood: [], bitten: false, cam: null, camDir: null }; c.mawStart3(); }
+      else if (v.k === 'slash') {
+        c.slashS = { ph: 1, pt: 0, t: 0, from: [+v.fx || v.x, +v.fz || v.z], hs: clamp(+v.hs || 1, 0.5, 10), side: v.side < 0 ? -1 : 1, blood: [], cut: false, cam: null, camDir: null, fp: { roll: 0, dy: 0 } };
+        c.slashStart1();
+      } else if (v.k === 'burst') { c.burstInit(v.pv); if (c.sfxOk()) try { Sfx.gore(); } catch (e) { } }
+    } catch (e) { return; }
+    this.obs.push({ u: v.u, k: v.k, c });
+  },
+  obsUpdate(dt) {
+    for (let i = this.obs.length - 1; i >= 0; i--) {
+      const o = this.obs[i], c = o.c;
+      try {
+        if (o.k === 'kill' && c.killS) c.updateKill(dt);
+        else if (o.k === 'maw' && c.mawS) c.updateMaw(dt);
+        else if (o.k === 'slash' && c.slashS) c.updateSlash(dt);
+        else if (o.k === 'burst' && c.burstS) c.updateBurst(dt);
+      } catch (e) { c[o.k + 'S'] = null; }
+      if (!c[o.k + 'S']) this.obs.splice(i, 1);
+    }
+  },
+  obsDraw(batch, cam) {
+    for (const o of this.obs) {
+      const c = o.c;
+      if (o.k === 'kill' && c.killS) {
+        if (c.killS.ph === 0) { const t = c.obsTg; Net.drawAv(batch, cam, { cx: t.x, cy: t.y, cz: t.z, cya: t.yaw, pi: t.pitch || 0, s: 0, walk: 0, wph: 0, m: '', o: 0, _st: c.obsSt || (c.obsSt = {}) }); }   // пока существо бежит — жертва стоит и оборачивается
+        c.drawKill(batch, cam);
+      }
+      else if (o.k === 'maw' && c.mawS) c.drawMaw(batch, cam);
+      else if (o.k === 'slash' && c.slashS) c.drawSlash(batch, cam);
+      else if (o.k === 'burst' && c.burstS) c.drawBurst(batch, cam);
+    }
+  },
+  // существо из чужой сцены (рисуется вместо существа-владельца, пока идёт сцена)
+  obsCreature() {
+    for (const o of this.obs) { const c = o.c, L = c.killL || c.mawL || c.slashL; if (L) return L; }
+    return null;
+  },
+  // жертва в сцене — её обычная модель не рисуется
+  obsHides(u) { for (const o of this.obs) if (o.u === u) return true; return false; }
 });
 
 // ---- supabase-js 2.45.4 (UMD), встроен в игру, чтобы не зависеть от CDN ----
@@ -8326,7 +8412,7 @@ const Game = {
     const scene = {
       ents: Ents.build(this.batches.ents, cam), figure: fig, figureColor: [0.022, 0.02, 0.026, 1],
       crack: tg.crack, outline: tg.outline, hand: (UI.hideHud || p.dead || this.view || sceneCam || Ents.mawS || Ents.slashS || Ents.burstS) ? null : this.buildHand(),
-      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Ents.killL || Ents.mawL || Ents.slashL || Net.morphMutant() || Net.selfMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
+      mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Ents.killL || Ents.mawL || Ents.slashL || Ents.obsCreature() || Net.morphMutant() || Net.selfMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
       ghost: Ents.buildMutant(this.batches.ghost, this.batches.ghostEyes, cam, Ents.ghost), ghostEyes: this.batches.ghostEyes
     };
     this._tvT = (this._tvT || 0) - dt;
@@ -8439,6 +8525,7 @@ const Net = {
       .on('broadcast', { event: 'pb' }, m => TK.onPBurst(m.payload))
       .on('broadcast', { event: 'sx' }, m => TK.onStakeThrow(m.payload))
       .on('broadcast', { event: 'pt' }, m => TK.onPThrow(m.payload))
+      .on('broadcast', { event: 'sc' }, m => { const v = m.payload; if (v && v.u !== this.uid) Ents.obsStart(v); })
       .on('presence', { event: 'sync' }, () => { try { this.nPres = this.ch ? Object.keys(this.ch.presenceState()).length : 1; } catch (e) { } })
       .on('presence', { event: 'join' }, m => this.onPresJoin(m.newPresences || []))
       .on('presence', { event: 'leave' }, m => this.onPresLeave(m.leftPresences || []));
@@ -8609,7 +8696,7 @@ const Net = {
     if (this.sendT <= 0) {
       this.sendT = 0.15;
       const h = p.held();
-      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, st: this.cStatic ? 1 : 0, ...(this.form === 'creature' ? TK.aim() : { ag: 0, ao: 0 }) };
+      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, st: this.cStatic ? 1 : 0, dd: p.dead ? 1 : 0, ...(this.form === 'creature' ? TK.aim() : { ag: 0, ao: 0 }) };
       const sig = JSON.stringify(v), now = performance.now();
       // двигаемся или стоим — раз в 2 секунды шлём позицию, чтобы нас не сочли пропавшими
       if (!this.vanish && (sig !== this.lastSent || now - this.lastSentT > 2000)) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
@@ -8652,6 +8739,7 @@ const Net = {
     this.snapWait = null; this.evQueue = [];
     if (this.fxOn) this.fxClear();
     if (this.cmdOn) this.cmdClose(true);
+    Ents.obs = [];
     this.vanish = false; this.form = 'player'; Player.hs = 1; this.armSpin = false; this.shared = false; this.pendingShared = false;
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
   },
@@ -8985,7 +9073,14 @@ const Net = {
       Sfx[n] = function (...a) { const r = f0.apply(this, a); if (Net.role === 'host' && Net.ch) Net.send('fxs', { n, a }); return r; };
     }
   },
-  observer() { return this.role === 'guest'; },
+  // наблюдатель: гость, у которого свои события не идут (повторяет хозяина). В общем мире 666 обычные игроки живут как хозяин
+  observer() { return this.role === 'guest' && !this.isVictim(); },
+  // начало сцены существа у жертвы — остальным, чтобы они видели её в мире
+  sceneSend(k, extra) {
+    if (!this.role || !this.ch) return;
+    const p = Player;
+    this.send('sc', { u: this.uid, k, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), yaw: +p.yaw.toFixed(3), ...extra });
+  },
   fxPack() {
     const E = Ents, M = E.mutant, m = {};
     for (const k in M) { const t = typeof M[k]; if (t === 'number') m[k] = +M[k].toFixed(3); else if (t === 'boolean') m[k] = M[k]; }
@@ -8996,11 +9091,11 @@ const Net = {
   },
   fxActive(p) { return !!(p.m.active || p.k.some(v => v > 0.004) || p.bl || p.pc || p.fp > 0 || p.pk); },
   onFxs(v) {
-    if (this.role !== 'guest' || !v || !Game.settings.mutant || !this.FX_SFX.includes(v.n)) return;
+    if (!this.observer() || !v || !Game.settings.mutant || !this.FX_SFX.includes(v.n)) return;
     try { Sfx[v.n](...(v.a || [])); } catch (e) { }
   },
   onFx(v) {
-    if (this.role !== 'guest' || !v || !Game.settings.mutant) return;
+    if (!this.observer() || !v || !Game.settings.mutant) return;
     if (v.z) { this.fxClear(); return; }
     const E = Ents, M = E.mutant;
     this.fxT = performance.now(); this.fxOn = true;
@@ -9056,8 +9151,9 @@ const Net = {
   // ---------- отрисовка чужих игроков ----------
   buildAvatars(batch, cam) {
     const now = performance.now();
-    for (const q of this.peers.values()) {
+    for (const [u, q] of this.peers) {
       if (now - (q.seen || 0) > 15000 || q.m === 'c') continue;            // существо рисуется отдельной моделью
+      if (q.dd || Ents.obsHides(u)) continue;                               // погиб или сейчас в сцене существа (её рисует obsDraw)
       this.drawAv(batch, cam, q);
     }
     // F5: свой персонаж (за существо — отдельная модель, см. selfMutant)
@@ -9066,6 +9162,7 @@ const Net = {
     else if (Ents.slashS && Ents.slashS.ph >= 1) Ents.drawSlash(batch, cam);
     else if (Ents.burstS) Ents.drawBurst(batch, cam);
     else if (Game.view && this.form !== 'creature' && !Player.dead) this.drawAv(batch, cam, this.selfQ());
+    Ents.obsDraw(batch, cam);   // сцены существа у других игроков
     TK.draw(batch, cam);   // телекинез: деревья в воздухе и обломки
   },
   drawAv(batch, cam, q) {
@@ -9116,7 +9213,7 @@ const Net = {
     for (const [k, q] of this.peers) {
       let e = this.tags.get(k);
       if (!e) { e = document.createElement('div'); e.className = 'nettag'; document.body.appendChild(e); this.tags.set(k, e); }
-      if (q.m) { e.style.display = 'none'; continue; }                  // в облике существа или чёрного скина ника нет
+      if (q.m || q.dd || Ents.obsHides(k)) { e.style.display = 'none'; continue; }                  // в облике существа или чёрного скина ника нет
       const name = (q.o ? '★ ' : '') + (q.n || 'Игрок');
       if (e.textContent !== name) e.textContent = name;
       const v = m4xv(VP, q.cx - cam.x, q.cy + 2.3 - cam.y, q.cz - cam.z, 1);
@@ -9526,9 +9623,12 @@ const TK = {
     this._last = { at: at.map(v => +v.toFixed(1)), mode: F.mode };
     try { Sfx.breakB(thrown ? 'wood' : 'grass'); if (thrown) Sfx.staticBurst(); } catch (e) { }
     if (thrown) Game.flickerPulse = Math.max(Game.flickerPulse || 0, 0.2);
-    if (!Net.isVictim()) return;   // мир ломает хозяин, урон получает каждый обычный игрок у себя
+    // мир ломает один клиент: в общем мире 666 — существо (дерево всегда рядом с ним), в обычном — хозяин; правки расходятся всем.
+    // урон получает каждый обычный игрок у себя
+    const auth = Net.shared ? (Net.role === 'guest' && Net.guestOwner) : Net.role === 'host';
+    if (!auth && !Net.isVictim()) return;
     const p = Player, R = thrown ? 3.2 + Math.min(2, n / 150) : 1.6;
-    if (Net.role === 'host') { Net.cap++;
+    if (auth) { Net.cap++;
     try {
       for (let dx = -Math.ceil(R); dx <= Math.ceil(R); dx++) for (let dy = -Math.ceil(R); dy <= Math.ceil(R); dy++) for (let dz = -Math.ceil(R); dz <= Math.ceil(R); dz++) {
         const x = Math.floor(at[0]) + dx, y = Math.floor(at[1]) + dy, z = Math.floor(at[2]) + dz;
@@ -9546,6 +9646,7 @@ const TK = {
     } finally { Net.cap--; }
     }
     // урон игроку: чем ближе к центру удара, тем больше
+    if (!Net.isVictim()) return;
     const d = Math.hypot(p.x - at[0], p.y + 0.9 - at[1], p.z - at[2]), reach = R + 1.5;
     if (!p.dead && d < reach) hurtPlayer(Math.ceil((thrown ? 22 : 10) * (1 - d / reach)), true);
   },
