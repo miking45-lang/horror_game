@@ -7753,7 +7753,7 @@ const Menus = {
       const ns = Game.newSlot, svNew = Game.savedInfo(ns);
       h = `<div class="mtitle">Одиночная игра</div><div class="col">`;
       // слот 1 всегда занят общим миром «666»: сюда заходят все игроки и играют вместе (удалить нельзя). Свои миры — в слотах 2 и далее
-      h += `<div class="row wslot">${this.btn('1. «666» · общий мир · играть с другими', 'play666', 'slotb')}</div>`;
+      h += `<div class="row wslot">${this.btn('1. «666»', 'play666', 'slotb')}</div>`;
       for (let n = 1; n <= SLOTS; n++) {
         const sv = Game.savedInfo(n), sel = n === ns;
         if (sv) h += `<div class="row wslot${sel ? ' sel' : ''}">${this.btn(`${sel ? '▶ ' : ''}${n + 1}. «${sv.name}» · ${sv.mode === 'creative' ? 'Творч.' : 'Выжив.'} · день ${sv.day}`, 'play:' + n, 'slotb')}${this.btn(this.confirmDel === n ? 'Точно?' : 'Удалить', 'del:' + n, 'tiny' + (this.confirmDel === n ? ' warn' : ''))}</div>`;
