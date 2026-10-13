@@ -7648,7 +7648,7 @@ const Menus = {
   },
   btn(label, act, cls = '') { return `<button class="mcb ${cls}" data-act="${act}">${label}</button>`; },
   show(name) {
-    this.cur = name;
+    this.cur = name; { const h = $("clickHint"); if (h) h.hidden = true; }   // подсказка «нажмите, чтобы продолжить» не должна перекрывать меню (экран смерти и др.)
     const e = this.el; e.hidden = false;
     const inGame = Game.state === 'play';
     e.className = (inGame && name !== 'loading') ? 'menu dim' : 'menu dirt';
@@ -8001,7 +8001,7 @@ const Game = {
       Input.mouse[e.button] = true; Input.clicked[e.button] = true;
       e.preventDefault();
     });
-    $('clickHint').addEventListener('mousedown', () => { Sfx.init(); this.captureMouse(true); });
+    $('clickHint').addEventListener('mousedown', () => { Sfx.init(); if (Menus.cur || UI.gui) { $('clickHint').hidden = true; return; } this.captureMouse(true); });
     addEventListener('mouseup', e => { Input.mouse[e.button] = false; TK.mouseUp(e.button); });
     cv.addEventListener('contextmenu', e => e.preventDefault());
     cv.addEventListener('auxclick', e => e.preventDefault());

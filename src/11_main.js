@@ -397,6 +397,7 @@ const Game = {
   // ---------- цикл ----------
   loop(ts) {
     requestAnimationFrame(t => this.loop(t));
+    { const h = $("clickHint"); if (h && !h.hidden && (Menus.cur || UI.gui || Player.dead || this.state !== "play")) h.hidden = true; }   // плашка «нажмите, чтобы продолжить» никогда не висит над меню/смертью
     let dt = (ts - this.last) / 1000; this.last = ts;
     if (!(dt > 0)) dt = 0.016; dt = Math.min(dt, 0.1);
     this._fc = (this._fc || 0) + 1; this._ft = (this._ft || 0) + dt;

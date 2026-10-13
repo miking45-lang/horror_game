@@ -125,7 +125,7 @@ body { font-family: var(--font); color: var(--ink); user-select: none; -webkit-u
 .keys b { color: var(--hover); font-weight: 500; text-align: right; }
 .bar { width: calc(var(--s) * 100); height: calc(var(--s) * 2); background: #808080; margin-top: calc(var(--s) * 3); }
 .bar b { display: block; height: 100%; width: 0; background: #80ff80; }
-#clickHint { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.45); font-size: calc(var(--s) * 9); text-shadow: var(--s) var(--s) 0 var(--shadow); cursor: pointer; }
+#clickHint { position: fixed; inset: 0; z-index: 15; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.45); font-size: calc(var(--s) * 9); text-shadow: var(--s) var(--s) 0 var(--shadow); cursor: pointer; }
 #toast { position: fixed; left: 50%; top: calc(var(--s) * 18); transform: translateX(-50%); z-index: 40; max-width: 90vw; padding: calc(var(--s) * 3) calc(var(--s) * 6); background: rgba(0, 0, 0, 0.7); font-size: calc(var(--s) * 7); text-align: center; text-shadow: var(--s) var(--s) 0 var(--shadow); pointer-events: none; }
 #fatal { position: fixed; inset: 0; z-index: 100; padding: 24px; background: #1a0505; color: #fff; font-size: 16px; }
 
@@ -8209,6 +8209,7 @@ const Game = {
   // ---------- цикл ----------
   loop(ts) {
     requestAnimationFrame(t => this.loop(t));
+    { const h = $("clickHint"); if (h && !h.hidden && (Menus.cur || UI.gui || Player.dead || this.state !== "play")) h.hidden = true; }   // плашка «нажмите, чтобы продолжить» никогда не висит над меню/смертью
     let dt = (ts - this.last) / 1000; this.last = ts;
     if (!(dt > 0)) dt = 0.016; dt = Math.min(dt, 0.1);
     this._fc = (this._fc || 0) + 1; this._ft = (this._ft || 0) + dt;
