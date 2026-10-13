@@ -5587,6 +5587,28 @@ Object.assign(Ents, {
         tube([P(f2, 0, -0.18, 0), P(f3, 0, -0.05, 0), P(f3, 0, -0.1, 0)], [0.009, 0.006, 0.0005], { seg: 6, sub: 2, tile: claw, blk: paleBlk });
       }
     }
+    // ---- щупальца из спины (владелец-существо, боковая кнопка мыши) ----
+    const tk = L.tent || 0;
+    if (tk > 0.01) {
+      const W = L.tentW || 0, N = 12, NT = 8, len = 2.9 * (0.15 + 0.85 * tk);
+      for (let i = 0; i < NT; i++) {
+        const side = i % 2 ? 1 : -1, row = Math.floor(i / 2);
+        // где растёт: вдоль лопаток и позвоночника; куда: назад, вверх и в стороны веером
+        let x = side * (0.05 + row * 0.025), y = 0.45 + row * 0.13, z = -0.13;
+        let th = 0.35 + row * 0.22, ph = side * (0.45 + row * 0.28);
+        const pts = [[x, y, z]], rad = [0.07 * (0.5 + 0.5 * tk)];
+        const f1 = 1.3 + W * (6 + (i * 1.37) % 3), f2 = 0.9 + W * (9 + (i * 2.11) % 4), amp = 0.06 + W * 0.3;
+        for (let k = 1; k <= N; k++) {
+          // волна бежит от основания к концу; выросшие — быстрые хаотичные рывки
+          th += amp * Math.sin(t * f1 - k * 0.8 + i * 1.9) + W * 0.12 * Math.sin(t * f2 * 1.7 + k * 1.3 + i);
+          ph += amp * 0.9 * Math.cos(t * f2 - k * 0.7 + i * 2.7);
+          const sl = len / N, ct = Math.cos(th);
+          x += Math.sin(ph) * ct * sl; y += Math.sin(th) * sl; z += -Math.cos(ph) * ct * sl;
+          pts.push([x, y, z]); rad.push(0.07 * (0.5 + 0.5 * tk) * Math.pow(1 - k / (N + 1), 1.2) + 0.002);
+        }
+        tube(pts.map(p => P(tor, p[0], p[1], p[2])), rad, { seg: 6, sub: 2 });
+      }
+    }
     // ---- шея ----
     const nk = mul(mul(tor, T(0, 1.0, 0.02)), RX(mix(0.35, -0.3)));
     tube([P(tor, 0, 0.92, 0), P(nk, 0, 0.12, 0), P(nk, 0, 0.3, 0)], [0.07, 0.042, 0.05], { sub: 3 });
@@ -8122,12 +8144,13 @@ const Game = {
       Sfx.init();
       if (this.state !== 'play' || UI.gui || Menus.cur) return;
       if (!this.locked()) { this.captureMouse(true); return; }
+      if (e.button === 3 || e.button === 4) { e.preventDefault(); Net.toggleTent(); return; }   // боковая кнопка мыши: щупальца существа
       if (TK.mouseDown(e.button)) { e.preventDefault(); return; }   // телекинез деревьев (владелец-существо)
       Input.mouse[e.button] = true; Input.clicked[e.button] = true;
       e.preventDefault();
     });
     $('clickHint').addEventListener('mousedown', () => { Sfx.init(); if (Menus.cur || UI.gui) { $('clickHint').hidden = true; return; } this.captureMouse(true); });
-    addEventListener('mouseup', e => { Input.mouse[e.button] = false; TK.mouseUp(e.button); });
+    addEventListener('mouseup', e => { if ((e.button === 3 || e.button === 4) && this.state === 'play') e.preventDefault(); Input.mouse[e.button] = false; TK.mouseUp(e.button); });   // боковые кнопки не листают страницу «назад/вперёд» во время игры
     cv.addEventListener('contextmenu', e => e.preventDefault());
     cv.addEventListener('auxclick', e => e.preventDefault());
     addEventListener('mousemove', e => {
@@ -8696,7 +8719,7 @@ const Net = {
     if (this.sendT <= 0) {
       this.sendT = 0.15;
       const h = p.held();
-      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, st: this.cStatic ? 1 : 0, dd: p.dead ? 1 : 0, ...(this.form === 'creature' ? TK.aim() : { ag: 0, ao: 0 }) };
+      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, tn: this.form === 'creature' && this.tent ? 1 : 0, st: this.cStatic ? 1 : 0, dd: p.dead ? 1 : 0, ...(this.form === 'creature' ? TK.aim() : { ag: 0, ao: 0 }) };
       const sig = JSON.stringify(v), now = performance.now();
       // двигаемся или стоим — раз в 2 секунды шлём позицию, чтобы нас не сочли пропавшими
       if (!this.vanish && (sig !== this.lastSent || now - this.lastSentT > 2000)) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
@@ -8740,7 +8763,7 @@ const Net = {
     if (this.fxOn) this.fxClear();
     if (this.cmdOn) this.cmdClose(true);
     Ents.obs = [];
-    this.vanish = false; this.form = 'player'; Player.hs = 1; this.armSpin = false; this.shared = false; this.pendingShared = false;
+    this.vanish = false; this.form = 'player'; Player.hs = 1; this.armSpin = false; this.tent = false; this.shared = false; this.pendingShared = false;
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
   },
   // ---------- команды владельца (в чужом мире) ----------
@@ -8889,6 +8912,13 @@ const Net = {
     if (!this.canCmd() || this.form !== 'creature') return;
     this.armSpin = !this.armSpin; this.lastSent = ''; this.sendT = 0;
     UI.toast(this.armSpin ? 'Существо вращает руками' : 'Вращение руками остановлено');
+  },
+  // боковая кнопка мыши в облике существа: из спины медленно вырастают щупальца, повторное нажатие — втягиваются
+  tent: false,
+  toggleTent() {
+    if (!this.canCmd() || this.form !== 'creature') return;
+    this.tent = !this.tent; this.lastSent = ''; this.sendT = 0;
+    UI.toast(this.tent ? 'Щупальца вырастают' : 'Щупальца втягиваются');
   },
   // NumPad 4 / NumPad 6 в облике существа: издавать помехи при приближении к игроку или нет (по умолчанию — да)
   cStatic: true,
@@ -9043,6 +9073,10 @@ const Net = {
       L.aimOpen = !!q.ao;
     }
     L.aimK = (L.aimK || 0) + ((Array.isArray(q.ag) ? 1 : 0) - (L.aimK || 0)) * Math.min(1, dt * 6);
+    // щупальца: медленно растут (≈3,5 с), выросшие начинают метаться; втягиваются ≈2,5 с
+    L.tent = L.tent || 0; L.tentW = L.tentW || 0;
+    if (q.tn) { L.tent = Math.min(1, L.tent + dt / 3.5); if (L.tent > 0.97) L.tentW = Math.min(1, L.tentW + dt * 0.8); }
+    else { L.tent = Math.max(0, L.tent - dt / 2.5); L.tentW = Math.max(0, L.tentW - dt * 2.5); }
     return L;
   },
   // ---------- вид от третьего лица (F5): свой персонаж ----------
@@ -9054,7 +9088,7 @@ const Net = {
   selfQ() {
     const p = Player, S = this.self;
     return { cx: p.x, cy: p.y, cz: p.z, cya: p.yaw, pi: p.pitch, s: p.sneaking ? 1 : 0, walk: S.walk, wph: S.wph,
-      m: this.form === 'black' ? 'b' : '', o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, hs: p.hs || 1, ar: this.armSpin ? 1 : 0, seen: performance.now(), ...TK.aim(), _st: this.self };
+      m: this.form === 'black' ? 'b' : '', o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, hs: p.hs || 1, ar: this.armSpin ? 1 : 0, tn: this.tent ? 1 : 0, seen: performance.now(), ...TK.aim(), _st: this.self };
   },
   // своё существо (если играете за него и смотрите со стороны)
   selfMutant() {

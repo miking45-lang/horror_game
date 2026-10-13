@@ -726,6 +726,28 @@ Object.assign(Ents, {
         tube([P(f2, 0, -0.18, 0), P(f3, 0, -0.05, 0), P(f3, 0, -0.1, 0)], [0.009, 0.006, 0.0005], { seg: 6, sub: 2, tile: claw, blk: paleBlk });
       }
     }
+    // ---- щупальца из спины (владелец-существо, боковая кнопка мыши) ----
+    const tk = L.tent || 0;
+    if (tk > 0.01) {
+      const W = L.tentW || 0, N = 12, NT = 8, len = 2.9 * (0.15 + 0.85 * tk);
+      for (let i = 0; i < NT; i++) {
+        const side = i % 2 ? 1 : -1, row = Math.floor(i / 2);
+        // где растёт: вдоль лопаток и позвоночника; куда: назад, вверх и в стороны веером
+        let x = side * (0.05 + row * 0.025), y = 0.45 + row * 0.13, z = -0.13;
+        let th = 0.35 + row * 0.22, ph = side * (0.45 + row * 0.28);
+        const pts = [[x, y, z]], rad = [0.07 * (0.5 + 0.5 * tk)];
+        const f1 = 1.3 + W * (6 + (i * 1.37) % 3), f2 = 0.9 + W * (9 + (i * 2.11) % 4), amp = 0.06 + W * 0.3;
+        for (let k = 1; k <= N; k++) {
+          // волна бежит от основания к концу; выросшие — быстрые хаотичные рывки
+          th += amp * Math.sin(t * f1 - k * 0.8 + i * 1.9) + W * 0.12 * Math.sin(t * f2 * 1.7 + k * 1.3 + i);
+          ph += amp * 0.9 * Math.cos(t * f2 - k * 0.7 + i * 2.7);
+          const sl = len / N, ct = Math.cos(th);
+          x += Math.sin(ph) * ct * sl; y += Math.sin(th) * sl; z += -Math.cos(ph) * ct * sl;
+          pts.push([x, y, z]); rad.push(0.07 * (0.5 + 0.5 * tk) * Math.pow(1 - k / (N + 1), 1.2) + 0.002);
+        }
+        tube(pts.map(p => P(tor, p[0], p[1], p[2])), rad, { seg: 6, sub: 2 });
+      }
+    }
     // ---- шея ----
     const nk = mul(mul(tor, T(0, 1.0, 0.02)), RX(mix(0.35, -0.3)));
     tube([P(tor, 0, 0.92, 0), P(nk, 0, 0.12, 0), P(nk, 0, 0.3, 0)], [0.07, 0.042, 0.05], { sub: 3 });

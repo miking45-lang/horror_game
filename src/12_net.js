@@ -266,7 +266,7 @@ const Net = {
     if (this.sendT <= 0) {
       this.sendT = 0.15;
       const h = p.held();
-      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, st: this.cStatic ? 1 : 0, dd: p.dead ? 1 : 0, ...(this.form === 'creature' ? TK.aim() : { ag: 0, ao: 0 }) };
+      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, tn: this.form === 'creature' && this.tent ? 1 : 0, st: this.cStatic ? 1 : 0, dd: p.dead ? 1 : 0, ...(this.form === 'creature' ? TK.aim() : { ag: 0, ao: 0 }) };
       const sig = JSON.stringify(v), now = performance.now();
       // двигаемся или стоим — раз в 2 секунды шлём позицию, чтобы нас не сочли пропавшими
       if (!this.vanish && (sig !== this.lastSent || now - this.lastSentT > 2000)) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
@@ -310,7 +310,7 @@ const Net = {
     if (this.fxOn) this.fxClear();
     if (this.cmdOn) this.cmdClose(true);
     Ents.obs = [];
-    this.vanish = false; this.form = 'player'; Player.hs = 1; this.armSpin = false; this.shared = false; this.pendingShared = false;
+    this.vanish = false; this.form = 'player'; Player.hs = 1; this.armSpin = false; this.tent = false; this.shared = false; this.pendingShared = false;
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
   },
   // ---------- команды владельца (в чужом мире) ----------
@@ -459,6 +459,13 @@ const Net = {
     if (!this.canCmd() || this.form !== 'creature') return;
     this.armSpin = !this.armSpin; this.lastSent = ''; this.sendT = 0;
     UI.toast(this.armSpin ? 'Существо вращает руками' : 'Вращение руками остановлено');
+  },
+  // боковая кнопка мыши в облике существа: из спины медленно вырастают щупальца, повторное нажатие — втягиваются
+  tent: false,
+  toggleTent() {
+    if (!this.canCmd() || this.form !== 'creature') return;
+    this.tent = !this.tent; this.lastSent = ''; this.sendT = 0;
+    UI.toast(this.tent ? 'Щупальца вырастают' : 'Щупальца втягиваются');
   },
   // NumPad 4 / NumPad 6 в облике существа: издавать помехи при приближении к игроку или нет (по умолчанию — да)
   cStatic: true,
@@ -613,6 +620,10 @@ const Net = {
       L.aimOpen = !!q.ao;
     }
     L.aimK = (L.aimK || 0) + ((Array.isArray(q.ag) ? 1 : 0) - (L.aimK || 0)) * Math.min(1, dt * 6);
+    // щупальца: медленно растут (≈3,5 с), выросшие начинают метаться; втягиваются ≈2,5 с
+    L.tent = L.tent || 0; L.tentW = L.tentW || 0;
+    if (q.tn) { L.tent = Math.min(1, L.tent + dt / 3.5); if (L.tent > 0.97) L.tentW = Math.min(1, L.tentW + dt * 0.8); }
+    else { L.tent = Math.max(0, L.tent - dt / 2.5); L.tentW = Math.max(0, L.tentW - dt * 2.5); }
     return L;
   },
   // ---------- вид от третьего лица (F5): свой персонаж ----------
@@ -624,7 +635,7 @@ const Net = {
   selfQ() {
     const p = Player, S = this.self;
     return { cx: p.x, cy: p.y, cz: p.z, cya: p.yaw, pi: p.pitch, s: p.sneaking ? 1 : 0, walk: S.walk, wph: S.wph,
-      m: this.form === 'black' ? 'b' : '', o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, hs: p.hs || 1, ar: this.armSpin ? 1 : 0, seen: performance.now(), ...TK.aim(), _st: this.self };
+      m: this.form === 'black' ? 'b' : '', o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, hs: p.hs || 1, ar: this.armSpin ? 1 : 0, tn: this.tent ? 1 : 0, seen: performance.now(), ...TK.aim(), _st: this.self };
   },
   // своё существо (если играете за него и смотрите со стороны)
   selfMutant() {

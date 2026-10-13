@@ -220,12 +220,13 @@ const Game = {
       Sfx.init();
       if (this.state !== 'play' || UI.gui || Menus.cur) return;
       if (!this.locked()) { this.captureMouse(true); return; }
+      if (e.button === 3 || e.button === 4) { e.preventDefault(); Net.toggleTent(); return; }   // боковая кнопка мыши: щупальца существа
       if (TK.mouseDown(e.button)) { e.preventDefault(); return; }   // телекинез деревьев (владелец-существо)
       Input.mouse[e.button] = true; Input.clicked[e.button] = true;
       e.preventDefault();
     });
     $('clickHint').addEventListener('mousedown', () => { Sfx.init(); if (Menus.cur || UI.gui) { $('clickHint').hidden = true; return; } this.captureMouse(true); });
-    addEventListener('mouseup', e => { Input.mouse[e.button] = false; TK.mouseUp(e.button); });
+    addEventListener('mouseup', e => { if ((e.button === 3 || e.button === 4) && this.state === 'play') e.preventDefault(); Input.mouse[e.button] = false; TK.mouseUp(e.button); });   // боковые кнопки не листают страницу «назад/вперёд» во время игры
     cv.addEventListener('contextmenu', e => e.preventDefault());
     cv.addEventListener('auxclick', e => e.preventDefault());
     addEventListener('mousemove', e => {
