@@ -88,7 +88,7 @@ const Menus = {
   },
   btn(label, act, cls = '') { return `<button class="mcb ${cls}" data-act="${act}">${label}</button>`; },
   show(name) {
-    this.cur = name;
+    this.cur = name; { const h = $("clickHint"); if (h) h.hidden = true; }   // подсказка «нажмите, чтобы продолжить» не должна перекрывать меню (экран смерти и др.)
     const e = this.el; e.hidden = false;
     const inGame = Game.state === 'play';
     e.className = (inGame && name !== 'loading') ? 'menu dim' : 'menu dirt';

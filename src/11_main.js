@@ -189,7 +189,7 @@ const Game = {
       Input.mouse[e.button] = true; Input.clicked[e.button] = true;
       e.preventDefault();
     });
-    $('clickHint').addEventListener('mousedown', () => { Sfx.init(); this.captureMouse(true); });
+    $('clickHint').addEventListener('mousedown', () => { Sfx.init(); if (Menus.cur || UI.gui) { $('clickHint').hidden = true; return; } this.captureMouse(true); });
     addEventListener('mouseup', e => { Input.mouse[e.button] = false; TK.mouseUp(e.button); });
     cv.addEventListener('contextmenu', e => e.preventDefault());
     cv.addEventListener('auxclick', e => e.preventDefault());
