@@ -106,17 +106,20 @@ const Menus = {
     } else if (name === 'worlds') {
       const ns = Game.newSlot, svNew = Game.savedInfo(ns);
       h = `<div class="mtitle">Одиночная игра</div><div class="col">`;
+      // слот 1 всегда занят общим миром «666»: сюда заходят все игроки и играют вместе (удалить нельзя). Свои миры — в слотах 2 и далее
+      h += `<div class="row wslot">${this.btn('1. «666» · общий мир · играть с другими', 'play666', 'slotb')}</div>`;
       for (let n = 1; n <= SLOTS; n++) {
         const sv = Game.savedInfo(n), sel = n === ns;
-        if (sv) h += `<div class="row wslot${sel ? ' sel' : ''}">${this.btn(`${sel ? '▶ ' : ''}${n}. «${sv.name}» · ${sv.mode === 'creative' ? 'Творч.' : 'Выжив.'} · день ${sv.day}`, 'play:' + n, 'slotb')}${this.btn(this.confirmDel === n ? 'Точно?' : 'Удалить', 'del:' + n, 'tiny' + (this.confirmDel === n ? ' warn' : ''))}</div>`;
-        else h += `<div class="row wslot${sel ? ' sel' : ''}">${this.btn(`${sel ? '▶ ' : ''}${n}. Пусто`, 'pick:' + n, 'slotb')}${this.btn(sel ? 'Выбран' : 'Выбрать', 'pick:' + n, 'tiny' + (sel ? ' on' : ''))}</div>`;
+        if (sv) h += `<div class="row wslot${sel ? ' sel' : ''}">${this.btn(`${sel ? '▶ ' : ''}${n + 1}. «${sv.name}» · ${sv.mode === 'creative' ? 'Творч.' : 'Выжив.'} · день ${sv.day}`, 'play:' + n, 'slotb')}${this.btn(this.confirmDel === n ? 'Точно?' : 'Удалить', 'del:' + n, 'tiny' + (this.confirmDel === n ? ' warn' : ''))}</div>`;
+        else h += `<div class="row wslot${sel ? ' sel' : ''}">${this.btn(`${sel ? '▶ ' : ''}${n + 1}. Пусто`, 'pick:' + n, 'slotb')}${this.btn(sel ? 'Выбран' : 'Выбрать', 'pick:' + n, 'tiny' + (sel ? ' on' : ''))}</div>`;
       }
-      h += `<div class="sep">Новый мир → слот ${ns}</div>
+      h += `<div class="sep">Новый мир → слот ${ns + 1}</div>
         <label class="lbl" for="seedIn">Сид мира (пусто — случайный)</label>
         <input id="seedIn" class="mcin" maxlength="32" autocomplete="off" spellcheck="false">
         ${this.btn('Режим: ' + (Game.newMode === 'creative' ? 'Творческий' : 'Выживание'), 'mode')}
         <div class="note">${Game.newMode === 'creative' ? 'Бесконечные блоки, полёт (двойной пробел), мгновенная ломка' : 'Добывай, крафти, береги здоровье. Ночью и в пещерах опасно'}</div>
-        ${this.btn(svNew && this.confirmNew ? `Заменить мир в слоте ${ns}?` : `Создать новый мир (слот ${ns})`, 'create', svNew && this.confirmNew ? 'warn' : '')}
+        ${this.btn(svNew && this.confirmNew ? `Заменить мир в слоте ${ns + 1}?` : `Создать новый мир (слот ${ns + 1})`, 'create', svNew && this.confirmNew ? 'warn' : '')}
+        <div class="note" id="netStatus"></div>
         ${this.btn('Назад', 'title')}</div>`;
     } else if (name === 'net') {
       h = `<div class="mtitle">Игра с другом</div><div class="col">
@@ -143,7 +146,7 @@ const Menus = {
         <div class="row">${this.btn('Настройки', 'settings', 'half')}${this.btn('Управление', 'controls', 'half')}</div>
         ${this.btn(Net.role === 'guest' ? 'Выйти из чужого мира' : 'Сохранить и выйти в меню', 'quit')}</div>
         ${Net.role === 'host' && Net.code && Net.isOwner ? `<div class="note">Код мира для друга: <b class="netcode">${Net.code}</b></div>` : ''}
-        ${Net.role === 'guest' ? '<div class="note">Вы в чужом мире — ваши действия видит хозяин, мир сохраняется у него</div>' : ''}`;
+        ${Net.shared ? '<div class="note">Общий мир 666: он не сохраняется. Если хозяин выйдет, мир запустится заново</div>' : Net.role === 'guest' ? '<div class="note">Вы в чужом мире — ваши действия видит хозяин, мир сохраняется у него</div>' : ''}`;
     } else if (name === 'morph') {
       const mark = f => Net.form === f ? '» ' : '';
       h = `<div class="mtitle">Облик</div><div class="col">
@@ -215,6 +218,7 @@ const Menus = {
   },
   act(a, b) {
     if (a === 'worlds') { this.confirmNew = false; this.confirmDel = 0; Game.newSlot = Game.freeSlot(); this.show('worlds'); }
+    else if (a === 'play666') Game.enter666(true);
     else if (a.startsWith('pick:')) { Game.newSlot = +a.slice(5); this.confirmNew = false; this.confirmDel = 0; this.show('worlds'); }
     else if (a.startsWith('play:')) Game.loadWorld(+a.slice(5));
     else if (a.startsWith('del:')) {

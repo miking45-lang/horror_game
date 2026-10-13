@@ -29,14 +29,14 @@ const TK = {
   // ЛКМ вплотную к хозяину мира — рассечение (у хозяина: падение от первого лица, затем вид со стороны)
   slashT: 0,
   trySlash() {
-    const q = Net.peers.get(Net.hostUid), p = Player, hs = p.hs || 1;
-    if (!q || performance.now() - (q.seen || 0) > 5000) return false;
+    const q = Net.victim(), p = Player, hs = p.hs || 1;
+    if (!q) return false;
     const dx = q.x - p.x, dz = q.z - p.z, d = Math.hypot(dx, dz), f = lookDir(), fn = Math.hypot(f[0], f[2]) || 1;
     if (d > 2.2 + 1.4 * hs || Math.abs(q.y - p.y) > 2.5 * hs) return false;
     if (d > 0.5 && (dx * f[0] + dz * f[2]) / (d * fn) < 0.35) return false;   // игрок должен быть перед вами
     const now = performance.now(); if (now - this.slashT < 4000) return true;
     this.slashT = now;
-    Net.send('cmd', { u: Net.uid, c: 'slash', x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), hs });
+    Net.send('cmd', { u: Net.uid, c: 'slash', to: q.uid, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), hs });
     return true;
   },
   mouseUp(btn) {
@@ -130,8 +130,8 @@ const TK = {
   // ---------- игрок в руках (владелец берёт хозяина мира) ----------
   heldP: null, carried: null, pflight: null,
   grabPlayer() {
-    const q = Net.peers.get(Net.hostUid), p = Player;
-    if (!q || performance.now() - (q.seen || 0) > 5000) return false;
+    const q = Net.victim(), p = Player;
+    if (!q) return false;
     const d = lookDir(), ey = p.y + EYE * (p.hs || 1), C = [q.x, q.y + 0.9, q.z];
     const t = (C[0] - p.x) * d[0] + (C[1] - ey) * d[1] + (C[2] - p.z) * d[2];
     if (t < 1 || t > 48) return false;
@@ -139,18 +139,18 @@ const TK = {
     if (miss > 0.9) return false;
     const hit = raycast(p.x, ey, p.z, d[0], d[1], d[2], t);
     if (hit && hit.t < t - 0.6) return false;                     // игрока закрывает стена
-    this.heldP = { pos: C.slice(), dist: clamp(t, 3, 16) };
+    this.heldP = { pos: C.slice(), dist: clamp(t, 3, 16), to: q.uid };
     this.sendT = 0; Net.lastSent = ''; Net.sendT = 0;
     return true;
   },
   burstPlayer() {
     const H = this.heldP; if (!H) return;
     this.heldP = null;
-    Net.send('pb', { u: Net.uid });
+    Net.send('pb', { u: Net.uid, to: H.to });
     this.openT = 0.6; this.lastAim = H.pos.slice(); Net.lastSent = ''; Net.sendT = 0;
   },
   onPBurst(v) {
-    if (!v || Net.role !== 'host' || !Net.isOwnerPeer(v.u)) return;
+    if (!v || !Net.role || !Net.forMe(v) || !Net.isOwnerPeer(v.u)) return;
     this.carried = null; this.pflight = null;
     Ents.forceBurst();
   },
@@ -158,19 +158,19 @@ const TK = {
     const H = this.heldP; if (!H) return;
     this.heldP = null;
     const d = lookDir(), v = thrown ? [d[0] * 30, d[1] * 30 + 3, d[2] * 30] : [0, 0, 0];
-    Net.send('pt', { u: Net.uid, vx: +v[0].toFixed(2), vy: +v[1].toFixed(2), vz: +v[2].toFixed(2) });
+    Net.send('pt', { u: Net.uid, to: H.to, vx: +v[0].toFixed(2), vy: +v[1].toFixed(2), vz: +v[2].toFixed(2) });
     this.openT = thrown ? 0.5 : 0.25; this.lastAim = H.pos.slice(); Net.lastSent = ''; Net.sendT = 0;
   },
   // у хозяина мира: владелец держит/бросает его игрока
   onPHold(v) {
-    if (!v || Net.role !== 'host' || !Net.isOwnerPeer(v.u) || !Number.isFinite(v.x)) return;
+    if (!v || !Net.role || !Net.forMe(v) || !Net.isOwnerPeer(v.u) || !Number.isFinite(v.x)) return;
     const p = Player; if (p.dead || Ents.killS || Ents.mawS || Ents.slashS) return;
     if (!this.carried) this.carried = { tgt: [v.x, v.y, v.z], seen: performance.now(), peak: p.y };
     else { this.carried.tgt = [v.x, v.y, v.z]; this.carried.seen = performance.now(); }
     this.pflight = null;
   },
   onPThrow(v) {
-    if (!v || Net.role !== 'host' || !Net.isOwnerPeer(v.u) || !this.carried) return;
+    if (!v || !Net.role || !Net.forMe(v) || !Net.isOwnerPeer(v.u) || !this.carried) return;
     this.carried = null;
     this.pflight = { v: [+v.vx || 0, +v.vy || 0, +v.vz || 0], t: 0 };
   },
@@ -274,7 +274,7 @@ const TK = {
         for (let a = 0; a < 3; a++) k.p[a] += k.v[a] * dt / steps;
         const tip = [k.p[0] + k.dir[0] * 0.8, k.p[1] + k.dir[1] * 0.8, k.p[2] + k.dir[2] * 0.8];
         // кол проходит сквозь игрока — большой урон (у хозяина мира, один раз на кол)
-        if (!k.hit && Net.role === 'host' && !pl.dead && Math.abs(tip[0] - pl.x) < 0.4 && Math.abs(tip[2] - pl.z) < 0.4 && tip[1] > pl.y && tip[1] < pl.y + 1.9) {
+        if (!k.hit && Net.isVictim() && !pl.dead && Math.abs(tip[0] - pl.x) < 0.4 && Math.abs(tip[2] - pl.z) < 0.4 && tip[1] > pl.y && tip[1] < pl.y + 1.9) {
           k.hit = true; hurtPlayer(14, true); Game.flickerPulse = Math.max(Game.flickerPulse || 0, 0.2);
           for (let j = 0; j < 12 && this.debris.length < 400; j++) this.debris.push({ id: B.LOG, red: 1, x: tip[0], y: tip[1], z: tip[2], vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2, vz: (Math.random() - 0.5) * 3, s: 0.05, t: 0, life: 0.8 });
         }
@@ -325,7 +325,7 @@ const TK = {
       const tg = [p.x + d[0] * H.dist, ey + d[1] * H.dist, p.z + d[2] * H.dist];
       for (let i = 0; i < 3; i++) H.pos[i] += (tg[i] - H.pos[i]) * k;
       this.sendT -= dt;
-      if (this.sendT <= 0) { this.sendT = 0.066; Net.send('ph', { u: Net.uid, x: +H.pos[0].toFixed(2), y: +(H.pos[1] - 0.9).toFixed(2), z: +H.pos[2].toFixed(2) }); }
+      if (this.sendT <= 0) { this.sendT = 0.066; Net.send('ph', { u: Net.uid, to: H.to, x: +H.pos[0].toFixed(2), y: +(H.pos[1] - 0.9).toFixed(2), z: +H.pos[2].toFixed(2) }); }
     }
     this.hostCarry(dt);
     if (this.held) {
@@ -365,7 +365,7 @@ const TK = {
     for (let j = 0; j < n; j += step) {
       const o = this.rot(F, F.blocks[j]), x = F.pos[0] + o[0], y = F.pos[1] + o[1], z = F.pos[2] + o[2];
       if (SOLID[World.get(Math.floor(x), Math.floor(y), Math.floor(z))]) return [x, y, z];
-      if (F.mode === 'throw' && Net.role === 'host' && !p.dead && Math.abs(x - p.x) < 0.9 && Math.abs(z - p.z) < 0.9 && y > p.y - 0.3 && y < p.y + 2.1) return [x, y, z];
+      if (F.mode === 'throw' && Net.isVictim() && !p.dead && Math.abs(x - p.x) < 0.9 && Math.abs(z - p.z) < 0.9 && y > p.y - 0.3 && y < p.y + 2.1) return [x, y, z];
     }
     return null;
   },
@@ -380,9 +380,9 @@ const TK = {
     this._last = { at: at.map(v => +v.toFixed(1)), mode: F.mode };
     try { Sfx.breakB(thrown ? 'wood' : 'grass'); if (thrown) Sfx.staticBurst(); } catch (e) { }
     if (thrown) Game.flickerPulse = Math.max(Game.flickerPulse || 0, 0.2);
-    if (Net.role !== 'host') return;   // мир и урон — только у хозяина
+    if (!Net.isVictim()) return;   // мир ломает хозяин, урон получает каждый обычный игрок у себя
     const p = Player, R = thrown ? 3.2 + Math.min(2, n / 150) : 1.6;
-    Net.cap++;
+    if (Net.role === 'host') { Net.cap++;
     try {
       for (let dx = -Math.ceil(R); dx <= Math.ceil(R); dx++) for (let dy = -Math.ceil(R); dy <= Math.ceil(R); dy++) for (let dz = -Math.ceil(R); dz <= Math.ceil(R); dz++) {
         const x = Math.floor(at[0]) + dx, y = Math.floor(at[1]) + dy, z = Math.floor(at[2]) + dz;
@@ -398,6 +398,7 @@ const TK = {
         if (y > 0 && y < WH && !World.get(x, y, z)) World.set(x, y, z, b[3]);
       }
     } finally { Net.cap--; }
+    }
     // урон игроку: чем ближе к центру удара, тем больше
     const d = Math.hypot(p.x - at[0], p.y + 0.9 - at[1], p.z - at[2]), reach = R + 1.5;
     if (!p.dead && d < reach) hurtPlayer(Math.ceil((thrown ? 22 : 10) * (1 - d / reach)), true);

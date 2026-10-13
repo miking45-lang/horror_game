@@ -20,6 +20,7 @@ const Net = {
   cap: 0, applying: false, dirty: new Map(), flushT: 0, sendT: 0, lastSent: '', lastSentT: 0, timeT: 0, hbT: 0,
   snapWait: null, evQueue: [], subs: [],
   vanish: false, cmdOn: false, form: 'player',
+  shared: false, pendingShared: false, SHARED: '666666',   // общий мир «666»: комната с фиксированным кодом, хозяин — первый зашедший
   nPres: 1, lastJoinT: -1e9, fxT: 0, fxOn: false, fxTgt: null, fxK: [0, 0, 0, 0, 0, 0], fxTv: 'anim', fxSendT: 0, fxWas: false,
   // ---------- настройка ----------
   cfg() {
@@ -120,12 +121,11 @@ const Net = {
     if (this.role || !this.enabled()) return;
     try { await this.load(); } catch (e) { this.retryHost(); return; }
     if (Game.state !== 'play' || this.role) return;
-    const code = this.newCode();
-    this.role = 'host'; this.code = code;
+    const sh = this.pendingShared, code = sh ? this.SHARED : this.newCode();
+    this.role = 'host'; this.code = code; this.shared = sh; this.pendingShared = false;
     try {
       const row = { code, host: this.uid, n: this.nick(), owner: this.isOwner ? 1 : 0, w: Game.worldName, seed: World.seed, mode: Game.mode, d: Game.dayTime, c: Game.dayCount, pl: 1, updated_at: new Date().toISOString() };
-      const r = await this.sb.from('rooms').insert(row);
-      if (r.error) throw new Error(r.error.message);
+      if (!sh) { const r = await this.sb.from('rooms').insert(row); if (r.error) throw new Error(r.error.message); }   // у общего мира строку уже занял вход (claim_shared_room)
       this.ch = this.makeChannel(code);
       await this.subscribe(this.ch);
       await this.ch.track({ u: this.uid, n: this.nick(), o: this.isOwner ? 1 : 0, h: 1 });
@@ -162,23 +162,24 @@ const Net = {
     if (w.got === w.n && w.resolve) { const r = w.resolve; w.resolve = null; r(w.parts.join('')); }
   },
   // ---------- вход в чужой мир ----------
-  async join(code, asOwner) {
+  async join(code, asOwner, shared) {
     if (this.joining) return;
     this.joining = true;
     try {
       await this.load();
-      code = (code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      code = shared ? this.SHARED : (code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
       if (code.length !== 6) throw new Error('Код — 6 символов');
-      const r = await this.sb.rpc('get_room', { p_code: code });
+      if (code === this.SHARED) shared = true;   // владелец зашёл в 666 из списка миров
+      const r = shared ? await this.sb.rpc('get_shared_room') : await this.sb.rpc('get_room', { p_code: code });
       if (r.error) throw new Error('Не удалось проверить код: ' + r.error.message);
       const meta = Array.isArray(r.data) ? r.data[0] : r.data;
       if (!meta) throw new Error('Мир с таким кодом не найден или хозяин вышел');
       if (meta.host === this.uid) throw new Error('Это ваш собственный мир');
       Menus.netStatus('Подключение к миру «' + meta.w + '»…');
-      this.role = 'guest'; this.code = code; this.guestOwner = !!asOwner; this.hostUid = meta.host;
+      this.role = 'guest'; this.code = code; this.guestOwner = !!asOwner; this.hostUid = meta.host; this.shared = !!shared;
       const w = { a: null, parts: [], n: -1, got: 0, resolve: null, tm: 0 };
       this.snapWait = w;
-      const got = new Promise((ok, bad) => { w.resolve = ok; w.tm = setTimeout(() => bad(new Error('Хозяин мира не ответил')), 20000); });
+      const got = new Promise((ok, bad) => { w.resolve = ok; w.tm = setTimeout(() => bad(new Error('Хозяин мира не ответил')), shared ? 60000 : 20000); });
       this.vanish = !!asOwner;                      // владелец заходит невидимым
       const ch = this.makeChannel(code); this.ch = ch;
       await this.subscribe(ch);
@@ -215,7 +216,10 @@ const Net = {
   onPresLeave(list) {
     for (const p of list) {
       if (p.u === this.uid) continue;
-      if (this.role === 'guest' && p.u === this.hostUid) { this.stop(); Game.toTitle(); UI.toast('Хозяин мира вышел из игры'); return; }
+      if (this.role === 'guest' && p.u === this.hostUid) {
+        if (this.shared) { this.stop(); UI.toast('Хозяин мира 666 вышел — мир перезапускается'); setTimeout(() => Game.enter666(), 300 + Math.random() * 1500); return; }
+        this.stop(); Game.toTitle(); UI.toast('Хозяин мира вышел из игры'); return;
+      }
       const q = this.peers.get(p.u);
       if (q && this.role === 'host' && !q.o) UI.toast((q.n || 'Игрок') + ' вышел из мира');
       this.peers.delete(p.u); this.dropTag(p.u);
@@ -304,7 +308,7 @@ const Net = {
     this.snapWait = null; this.evQueue = [];
     if (this.fxOn) this.fxClear();
     if (this.cmdOn) this.cmdClose(true);
-    this.vanish = false; this.form = 'player'; Player.hs = 1; this.armSpin = false;
+    this.vanish = false; this.form = 'player'; Player.hs = 1; this.armSpin = false; this.shared = false; this.pendingShared = false;
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
   },
   // ---------- команды владельца (в чужом мире) ----------
@@ -468,9 +472,25 @@ const Net = {
     if (!this.canCmd() || this.form !== 'creature') return;
     const now = performance.now(); if (now - this.glT < 2000) return;
     this.glT = now;
-    this.send('cmd', { u: this.uid, c: 'glitch' });
-    UI.toast('Событие с красным небом запущено у хозяина мира');
+    const to = this.victimUid(); if (!to) { UI.toast('Рядом нет игроков'); return; }
+    this.send('cmd', { u: this.uid, c: 'glitch', to });
+    UI.toast(this.shared ? 'Событие с красным небом запущено у ближайшего игрока' : 'Событие с красным небом запущено у хозяина мира');
   },
+  // жертва событий владельца: хозяин мира или (в общем мире 666) любой обычный игрок
+  isVictim() { return this.role === 'host' || (this.shared && this.role === 'guest' && !this.guestOwner); },
+  // команда адресована мне: с полем to — только этому игроку, без него — хозяину мира
+  forMe(v) { return v.to ? v.to === this.uid : this.role === 'host'; },
+  // цель событий: в обычном мире — хозяин, в общем мире 666 — ближайший к владельцу игрок
+  victim() {
+    const now = performance.now(), p = Player; let best = null, bd = 1e9;
+    if (!this.shared) { const q = this.peers.get(this.hostUid); if (q && now - (q.seen || 0) < 5000) { q.uid = this.hostUid; return q; } return null; }
+    for (const [u, q] of this.peers) {
+      if (q.o === 1 || now - (q.seen || 0) > 5000 || !Number.isFinite(q.x)) continue;
+      const d = Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z); if (d < bd) { bd = d; best = q; best.uid = u; }
+    }
+    return best;
+  },
+  victimUid() { const q = this.victim(); return q ? q.uid : (this.shared ? null : this.hostUid); },
   isOwnerPeer(u) {
     const q = this.peers.get(u); if (q && q.o === 1) return true;
     try { const st = this.ch ? this.ch.presenceState() : {}; for (const k in st) for (const p of st[k] || []) if (p.u === u && p.o) return true; } catch (e) { }
@@ -482,8 +502,9 @@ const Net = {
     if (!this.canCmd() || this.form !== 'creature') return;
     const now = performance.now(); if (now - this.scT < 4000) return;
     this.scT = now;
-    this.send('cmd', { u: this.uid, c: 'scream' });
-    UI.toast('Скример отправлен хозяину мира');
+    const to = this.victimUid(); if (!to) { UI.toast('Рядом нет игроков'); return; }
+    this.send('cmd', { u: this.uid, c: 'scream', to });
+    UI.toast(this.shared ? 'Скример отправлен ближайшему игроку' : 'Скример отправлен хозяину мира');
   },
   // NumPad 3 в облике существа: «из экрана» — лицо вплотную, рык, откусывает голову хозяину мира
   mT: 0,
@@ -491,8 +512,9 @@ const Net = {
     if (!this.canCmd() || this.form !== 'creature') return;
     const now = performance.now(); if (now - this.mT < 15000) { UI.toast('Подождите немного'); return; }
     this.mT = now;
-    this.send('cmd', { u: this.uid, c: 'maw' });
-    UI.toast('«Из экрана» отправлено хозяину мира');
+    const to = this.victimUid(); if (!to) { UI.toast('Рядом нет игроков'); return; }
+    this.send('cmd', { u: this.uid, c: 'maw', to });
+    UI.toast(this.shared ? '«Из экрана» отправлено ближайшему игроку' : '«Из экрана» отправлено хозяину мира');
   },
   // NumPad 0 в облике существа: «расправа» над хозяином мира
   kT: 0,
@@ -501,14 +523,15 @@ const Net = {
     const now = performance.now(); if (now - this.kT < 15000) { UI.toast('Подождите немного'); return; }
     this.kT = now;
     const p = Player;
-    this.send('cmd', { u: this.uid, c: 'kill', x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), hs: this.cScale });
-    UI.toast('Расправа отправлена хозяину мира');
+    const to = this.victimUid(); if (!to) { UI.toast('Рядом нет игроков'); return; }
+    this.send('cmd', { u: this.uid, c: 'kill', to, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), hs: this.cScale });
+    UI.toast(this.shared ? 'Расправа отправлена ближайшему игроку' : 'Расправа отправлена хозяину мира');
   },
   onCmd(v) {
     if (!v || v.u === this.uid) return;
     // смена режима игры: адресована конкретному игроку (хозяину или гостю), принимается только от владельца
     if (v.c === 'gm') { if (v.to === this.uid && this.role && this.isOwnerPeer(v.u) && (v.m === 'creative' || v.m === 'survival')) this.applyMode(v.m, true); return; }
-    if (this.role !== 'host') return;
+    if (!this.role || !this.forMe(v)) return;
     if (!this.isOwnerPeer(v.u)) return;   // команды принимаем только от владельца игры (в том числе невидимого)
     if (v.c === 'glitch') Ents.forceGlitch();
     else if (v.c === 'scream') Ents.forceScreamer();

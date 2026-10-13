@@ -9,7 +9,7 @@ const HAND_CFG = {
   small: { x: 0.46, y: -0.2, z: -0.72, ry: 2.3, rz: 0.05, s: 0.46 },
   tool: { x: 0.5, y: -0.26, z: -0.78, ry: 2.75, rx: 0.0, rz: 0.55, s: 0.5 }
 }; // секунд на полные сутки
-const SAVE_KEY = 'tumanny_krai_world_v1', SET_KEY = 'tumanny_krai_settings_v1', SLOTS = 3;
+const SAVE_KEY = 'tumanny_krai_world_v1', SET_KEY = 'tumanny_krai_settings_v1', SLOTS = 4;
 const slotKey = n => n === 1 ? SAVE_KEY : SAVE_KEY + '_s' + n;
 const Game = {
   state: 'menu', mode: 'survival', time: 0, dayTime: 0.02, dayCount: 0, fps: 0, freeLook: false,
@@ -136,6 +136,41 @@ const Game = {
       Sfx.nextCave = 50; Sfx.nextMusic = 25 + Math.random() * 30;
       this.captureMouse();
     }
+  },
+  // общий мир «666»: первый зашедший становится хозяином (мир с фиксированным сидом, не сохраняется), остальные подключаются к нему
+  entering: false,
+  async enter666(fromMenu) {
+    if (this.entering || Net.joining) return;
+    const say = t => { if (Menus.cur === 'worlds') Menus.netStatus(t); else UI.toast(t); };
+    if (!Net.enabled()) { say('Сетевая игра не настроена'); return; }
+    this.entering = true; say('Подключение к миру 666…');
+    try {
+      await Net.load();
+      let prev = null;
+      for (let tries = 0; tries < 3; tries++) {
+        const r = await Net.sb.rpc('get_shared_room');
+        if (r.error) throw new Error('Мир 666 недоступен: ' + r.error.message + ' (выполните supabase/schema_666.sql)');
+        const meta = Array.isArray(r.data) ? r.data[0] : r.data;
+        if (meta && meta.host !== Net.uid) {
+          try { this.entering = false; await Net.join('', Net.isOwner, true); return; }
+          catch (e) {
+            if (!/не ответил/.test(e.message) || Net.isOwner) throw e;
+            prev = meta.host;   // хозяин не отвечает — считаем его пропавшим и занимаем мир
+          }
+          this.entering = true;
+        }
+        if (Net.isOwner) throw new Error('В мире 666 сейчас никого нет');
+        const c = await Net.sb.rpc('claim_shared_room', { p_n: Net.nick(), p_prev: prev || (meta ? meta.host : null) });
+        if (c.error) throw new Error('Не удалось занять мир 666: ' + c.error.message);
+        if (c.data) {
+          Net.pendingShared = true;
+          this.newWorld(666, 'survival', '666'); this.slot = 0;   // слот 0 — не сохраняется
+          return;
+        }
+      }
+      throw new Error('Мир 666 занят, попробуйте ещё раз');
+    } catch (e) { say(e.message); }
+    finally { this.entering = false; }
   },
   toTitle() {
     Net.stop();
