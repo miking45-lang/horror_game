@@ -222,11 +222,12 @@ const Game = {
       if (!this.locked()) { this.captureMouse(true); return; }
       if (e.button === 3 || e.button === 4) { e.preventDefault(); Net.toggleTent(); return; }   // боковая кнопка мыши: щупальца существа
       if (TK.mouseDown(e.button)) { e.preventDefault(); return; }   // телекинез деревьев (владелец-существо)
+      if (Sam.on()) { e.preventDefault(); if (e.button === 0) { Sam.fireHeld = true; Sam.firePressed = true; } else if (e.button === 2) Sam.aimHeld = true; return; }   // облик Сэма: огонь и прицел
       Input.mouse[e.button] = true; Input.clicked[e.button] = true;
       e.preventDefault();
     });
     $('clickHint').addEventListener('mousedown', () => { Sfx.init(); if (Menus.cur || UI.gui) { $('clickHint').hidden = true; return; } this.captureMouse(true); });
-    addEventListener('mouseup', e => { if ((e.button === 3 || e.button === 4) && this.state === 'play') e.preventDefault(); Input.mouse[e.button] = false; TK.mouseUp(e.button); });   // боковые кнопки не листают страницу «назад/вперёд» во время игры
+    addEventListener('mouseup', e => { if ((e.button === 3 || e.button === 4) && this.state === 'play') e.preventDefault(); Input.mouse[e.button] = false; TK.mouseUp(e.button); if (e.button === 0) Sam.fireHeld = false; if (e.button === 2) Sam.aimHeld = false; });   // боковые кнопки не листают страницу «назад/вперёд» во время игры
     cv.addEventListener('contextmenu', e => e.preventDefault());
     cv.addEventListener('auxclick', e => e.preventDefault());
     addEventListener('mousemove', e => {
@@ -239,6 +240,7 @@ const Game = {
     addEventListener('wheel', e => {
       if (this.state !== 'play' || UI.gui || Menus.cur) return;
       if (TK.wheel(e.deltaY)) return;   // наклон удерживаемого дерева
+      if (Sam.on()) { Sam.wheel(e.deltaY); return; }
       Player.selected = (Player.selected + (e.deltaY > 0 ? 1 : -1) + 9) % 9;
       UI.refreshHotbar();
     }, { passive: true });
@@ -277,7 +279,8 @@ const Game = {
         if (now - (Player.lastW || -1e9) < 300 && !Player.sneaking) { Player.sprinting = true; Player.lastW = -1e9; }
         else Player.lastW = now;
       }
-      if (/^Digit[1-9]$/.test(c)) { Player.selected = +c.slice(5) - 1; UI.refreshHotbar(); }
+      if (Sam.on() && /^Digit[0-9]$/.test(c)) { if (!e.repeat) Sam.slotKey((+c.slice(5) + 9) % 10); }
+      else if (/^Digit[1-9]$/.test(c)) { Player.selected = +c.slice(5) - 1; UI.refreshHotbar(); }
       else if (c === 'KeyE' && !Player.dead) UI.openInventory();
       else if (c === 'F3') UI.debug = !UI.debug;
       else if (c === 'F1') UI.hideHud = !UI.hideHud;
@@ -299,7 +302,7 @@ const Game = {
       }
     });
     addEventListener('keyup', e => { Input.keys[e.code] = false; });
-    addEventListener('blur', () => { Input.keys = {}; Input.mouse = [false, false, false]; });
+    addEventListener('blur', () => { Input.keys = {}; Input.mouse = [false, false, false]; Sam.fireHeld = Sam.aimHeld = false; });
     addEventListener('beforeunload', () => this.saveWorld());
     setInterval(() => { if (this.state === 'play') this.saveWorld(); }, 45000);
   },
@@ -464,11 +467,13 @@ const Game = {
       if (!p.dead && here && here.state >= ST_LIT) {
         if (UI.gui || Menus.cur) { const keep = Input.keys; Input.keys = {}; playerPhysics(sdt, this.mode === 'creative'); Input.keys = keep; }
         else playerPhysics(sdt, this.mode === 'creative');
-        if (!UI.gui && !Menus.cur && this.locked()) { Net.cap++; try { playerInteract(sdt); } finally { Net.cap--; } } else { p.breakP = 0; p.swinging = false; p.target = null; }
+        if (Sam.on()) { p.breakP = 0; p.swinging = false; p.target = null; if (UI.gui || Menus.cur || !this.locked()) Sam.fireHeld = Sam.aimHeld = false; Sam.update(sdt); }   // облик Сэма: вместо рук и блоков — оружие
+        else if (!UI.gui && !Menus.cur && this.locked()) { Net.cap++; try { playerInteract(sdt); } finally { Net.cap--; } } else { p.breakP = 0; p.swinging = false; p.target = null; }
         survivalTick(sdt);
       }
       if (p.equip < 1) p.equip = Math.min(1, p.equip + sdt * 4);
       Ents.update(sdt);
+      if (!Sam.on() && Sam.state === 'ready') Sam.tickWorld(sdt);   // снаряды и частицы чужого Сэма
       if (!UI.gui && !Menus.cur && !Net.observer()) Glimpse.update(sdt);
       Fluid.update(sdt); Net.cap++; try { Switch.tick(sdt); } finally { Net.cap--; }
       for (const [key, c] of World.containers) if (c.type === 'furnace') furnaceTick(c, key, sdt);
@@ -484,7 +489,8 @@ const Game = {
       this.handL = (this.handL || 0) + (tgt - (this.handL || 0)) * (1 - Math.exp(-dt * 9));
       env.handLight = this.handL * (0.96 + 0.04 * Math.sin(this.time * 11.3) * Math.sin(this.time * 4.1));
     }
-    const targetFov = this.settings.fov * (p.sprinting ? 1.12 : 1) * (p.eyeInWater ? 0.9 : 1) * (p.flying && p.sprinting ? 1.08 : 1);
+    Sam.zoom = Sam.on() && Sam.aimHeld && Sam.cur === 'hd_sniper' ? 1 : 0;
+    const targetFov = Sam.zoom ? this.settings.fov / 4 : this.settings.fov * (p.sprinting ? 1.12 : 1) * (p.eyeInWater ? 0.9 : 1) * (p.flying && p.sprinting ? 1.08 : 1);
     this.curFov += (targetFov - this.curFov) * (1 - Math.exp(-10 * dt));
     const ph = p.bob * 1.7, ba = this.settings.bob ? p.bobAmt : 0;
     const cam = {
@@ -492,6 +498,7 @@ const Game = {
       z: p.z - Math.sin(p.yaw) * Math.sin(ph) * 0.045 * ba, yaw: p.yaw, pitch: p.pitch, fov: this.curFov,
       roll: Math.sin(ph) * 0.006 * ba + (p.hurtT > 0 ? Math.sin(p.hurtT * 30) * 0.03 : 0)
     };
+    if (Sam.shake > 0 && !p.dead) { const k = Sam.shake * 0.06; cam.yaw += (Math.random() - 0.5) * k; cam.pitch += (Math.random() - 0.5) * k; cam.roll += (Math.random() - 0.5) * k * 0.5; }
     if (p.dead) { cam.y = p.y + 0.3; cam.roll = 0.5; }
     else if (this.view) {   // F5: камера позади или спереди, не залезает в блоки
       const d = lookDir(), s = this.view === 1 ? -1 : 1, D = 4 * Math.max(1, p.hs || 1) + (Net.form === 'creature' ? 1.5 : 0);
@@ -510,7 +517,8 @@ const Game = {
     const fig = Ents.buildFigure(this.batches.fig, cam);
     const scene = {
       ents: Ents.build(this.batches.ents, cam), figure: fig, figureColor: [0.022, 0.02, 0.026, 1],
-      crack: tg.crack, outline: tg.outline, hand: (UI.hideHud || p.dead || this.view || sceneCam || Ents.mawS || Ents.slashS || Ents.burstS) ? null : this.buildHand(),
+      crack: Sam.on() ? null : tg.crack, outline: Sam.on() ? null : tg.outline, hand: (Sam.on() || UI.hideHud || p.dead || this.view || sceneCam || Ents.mawS || Ents.slashS || Ents.burstS) ? null : this.buildHand(),
+      sam: Sam.state === 'ready', samView: Sam.on() && !(UI.hideHud || p.dead || this.view || sceneCam || Ents.mawS || Ents.slashS || Ents.burstS),
       mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Ents.killL || Ents.mawL || Ents.slashL || Ents.obsCreature() || Net.morphMutant() || Net.selfMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
       ghost: Ents.buildMutant(this.batches.ghost, this.batches.ghostEyes, cam, Ents.ghost), ghostEyes: this.batches.ghostEyes
     };
@@ -521,7 +529,7 @@ const Game = {
     Net.tick(dt); TK.update(paused ? 0 : dt); Net.drawTags(cam);
     UI.setStatic(Ents.pictureOn ? 0 : sk, Ents.mutantBurst > 0 && !Ents.pictureOn); Sfx.setStatic(sk, dt);
     $('waterFx').classList.toggle('on', !!p.eyeInWater);
-    UI.updateHud(dt);
+    UI.updateHud(dt); Sam.hud(dt);
     Sfx.update(dt, { underwater: p.eyeInWater, skyLight: this.eyeSky, night: env.night > 0.5, taiga: !!Ents.deepOn, evening: this.dayTime > 0.4 && this.dayTime < 0.52, dayCount: this.dayCount, y: p.y, paused: paused || Menus.cur === 'death' });
   }
 };

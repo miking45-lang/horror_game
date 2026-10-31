@@ -95,6 +95,8 @@ const Net = {
       .on('broadcast', { event: 'pb' }, m => TK.onPBurst(m.payload))
       .on('broadcast', { event: 'sx' }, m => TK.onStakeThrow(m.payload))
       .on('broadcast', { event: 'pt' }, m => TK.onPThrow(m.payload))
+      .on('broadcast', { event: 'ssh' }, m => this.onSamShot(m.payload))
+      .on('broadcast', { event: 'sdm' }, m => this.onSamDamage(m.payload))
       .on('broadcast', { event: 'sc' }, m => { const v = m.payload; if (v && v.u !== this.uid) Ents.obsStart(v); })
       .on('presence', { event: 'sync' }, () => { try { this.nPres = this.ch ? Object.keys(this.ch.presenceState()).length : 1; } catch (e) { } })
       .on('presence', { event: 'join' }, m => this.onPresJoin(m.newPresences || []))
@@ -203,6 +205,7 @@ const Net = {
     let q = this.peers.get(v.u);
     if (!q) { q = { cx: v.x, cy: v.y, cz: v.z, cya: v.ya, walk: 0, wph: 0 }; this.peers.set(v.u, q); }
     Object.assign(q, v); q.seen = performance.now();
+    if (v.m === 's' && Sam.state === 'none') Sam.load();   // кто-то в облике Сэма — нужна его модель
   },
   onEv(v) {
     if (!v || v.u === this.uid) return;
@@ -261,12 +264,12 @@ const Net = {
   tick(dt) {
     if (!this.role || !this.ch) return;
     const p = Player;
-    this.flushT -= dt; if (this.flushT <= 0) { this.flushT = 0.1; this.flush(); }
+    this.flushT -= dt; if (this.flushT <= 0) { this.flushT = 0.1; this.flush(); for (const [to, d] of this.samDmg) this.send('sdm', { u: this.uid, to, d: +d.toFixed(1) }); this.samDmg.clear(); }
     this.sendT -= dt;
     if (this.sendT <= 0) {
       this.sendT = 0.15;
       const h = p.held();
-      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : '', hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, tn: this.form === 'creature' && this.tent ? 1 : 0, st: this.cStatic ? 1 : 0, dd: p.dead ? 1 : 0, ...(this.form === 'creature' ? TK.aim() : { ag: 0, ao: 0 }) };
+      const v = { n: this.nick(), o: (this.role === 'guest' && this.guestOwner) ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), ya: +p.yaw.toFixed(2), pi: +p.pitch.toFixed(2), h: h ? h.id : 0, s: p.sneaking ? 1 : 0, m: this.form === 'creature' ? 'c' : this.form === 'black' ? 'b' : this.form === 'sam' ? 's' : '', sw: this.form === 'sam' && Sam.W[Sam.cur] ? Sam.W[Sam.cur].i : 0, hs: this.form === 'creature' ? this.cScale : 1, ar: this.form === 'creature' && this.armSpin ? 1 : 0, tn: this.form === 'creature' && this.tent ? 1 : 0, st: this.cStatic ? 1 : 0, dd: p.dead ? 1 : 0, ...(this.form === 'creature' ? TK.aim() : { ag: 0, ao: 0 }) };
       const sig = JSON.stringify(v), now = performance.now();
       // двигаемся или стоим — раз в 2 секунды шлём позицию, чтобы нас не сочли пропавшими
       if (!this.vanish && (sig !== this.lastSent || now - this.lastSentT > 2000)) { this.lastSent = sig; this.lastSentT = now; this.send('pos', { u: this.uid, ...v }); }
@@ -310,6 +313,7 @@ const Net = {
     if (this.fxOn) this.fxClear();
     if (this.cmdOn) this.cmdClose(true);
     Ents.obs = [];
+    if (this.form === 'sam') Sam.deactivate();
     this.vanish = false; this.form = 'player'; Player.hs = 1; this.armSpin = false; this.tent = false; this.shared = false; this.pendingShared = false;
     this.role = null; this.code = null; this.hostUid = null; this.lastSent = ''; this.guestOwner = false; this.hbT = 0; this.timeT = 0;
   },
@@ -561,12 +565,30 @@ const Net = {
     UI.toast('Рост существа: ' + Math.round(this.cScale * 100) + '%');
   },
   setForm(f) {
-    if (!this.canCmd() || !['creature', 'black', 'player'].includes(f)) return;
+    if (!this.canCmd() || !['creature', 'black', 'player', 'sam'].includes(f)) return;
+    if (this.form === 'sam' && f !== 'sam') Sam.deactivate();
     this.form = f;
     Player.hs = f === 'creature' ? this.cScale : 1;
     this.lastSent = ''; this.sendT = 0;
+    if (f === 'sam') Sam.activate();
     UI.toast(f === 'creature' ? 'Вы — основное существо: ник скрыт, события существа у игрока остановлены'
-      : f === 'black' ? 'Вы — чёрный скин: ник скрыт' : 'Вы снова игрок: ник виден');
+      : f === 'black' ? 'Вы — чёрный скин: ник скрыт' : f === 'sam' ? 'Вы — Серьёзный Сэм: 1–0 и колесо — оружие, ЛКМ — огонь'
+      : 'Вы снова игрок: ник виден');
+  },
+  // ---------- облик Сэма: выстрелы видят и слышат все, урон получает тот, в кого попали ----------
+  samSync() { this.lastSent = ''; this.sendT = 0; },
+  samShot(ev) { if (this.role && this.ch) this.send('ssh', { u: this.uid, ...ev }); },
+  onSamShot(v) {
+    if (!v || v.u === this.uid) return;
+    const q = this.peers.get(v.u); if (!q) return;
+    if (Sam.state === 'none') Sam.load();
+    if (Sam.state === 'ready') Sam.remoteShot(q, v);
+  },
+  samDmg: new Map(),
+  samDamage(u, d) { if (this.role && this.ch) this.samDmg.set(u, (this.samDmg.get(u) || 0) + d); },
+  onSamDamage(v) {
+    if (!v || v.to !== this.uid || this.form === 'sam') return;
+    hurtPlayer(Math.max(1, Math.round(v.d)));
   },
   // у хозяина: игрок в облике существа (если есть)
   creaturePeer() {
@@ -733,7 +755,7 @@ const Net = {
   buildAvatars(batch, cam) {
     const now = performance.now();
     for (const [u, q] of this.peers) {
-      if (now - (q.seen || 0) > 15000 || q.m === 'c') continue;            // существо рисуется отдельной моделью
+      if (now - (q.seen || 0) > 15000 || q.m === 'c' || q.m === 's') continue;   // существо и Сэм рисуются отдельными моделями
       if (q.dd || Ents.obsHides(u)) continue;                               // погиб или сейчас в сцене существа (её рисует obsDraw)
       this.drawAv(batch, cam, q);
     }
@@ -742,7 +764,7 @@ const Net = {
     else if (Ents.mawS) Ents.drawMaw(batch, cam);
     else if (Ents.slashS && Ents.slashS.ph >= 1) Ents.drawSlash(batch, cam);
     else if (Ents.burstS) Ents.drawBurst(batch, cam);
-    else if (Game.view && this.form !== 'creature' && !Player.dead) this.drawAv(batch, cam, this.selfQ());
+    else if (Game.view && this.form !== 'creature' && this.form !== 'sam' && !Player.dead) this.drawAv(batch, cam, this.selfQ());
     Ents.obsDraw(batch, cam);   // сцены существа у других игроков
     TK.draw(batch, cam);   // телекинез: деревья в воздухе и обломки
   },
