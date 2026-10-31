@@ -130,3 +130,17 @@ body { font-family: var(--font); color: var(--ink); user-select: none; -webkit-u
 .chatRow b { color: #ffe36e; font-weight: normal; }
 .chatRow.old { opacity: 0; }
 body.chatting .chatRow.old { opacity: 1; }
+
+/* ---------- облик «Серьёзный Сэм»: полоса выбора оружия (как в Serious Sam HD) ---------- */
+#hud.sam #hotbar { display: none; }
+#samBar { position: fixed; left: 50%; bottom: calc(var(--s) * 10); transform: translateX(-50%); display: flex; gap: calc(var(--s) * 2); align-items: flex-end; pointer-events: none; opacity: 0; transition: opacity .25s; z-index: 4; }
+#samBar .samslot { position: relative; display: flex; flex-direction: column-reverse; gap: calc(var(--s) * 1); padding: calc(var(--s) * 1); background: rgba(10, 18, 30, 0.55); border: var(--s) solid rgba(90, 160, 255, 0.35); border-radius: calc(var(--s) * 2); }
+#samBar .samslot b { position: absolute; left: calc(var(--s) * 1.5); top: calc(var(--s) * 0.5); font-size: calc(var(--s) * 6); color: #9fd0ff; text-shadow: var(--s) var(--s) 0 #000; }
+#samBar img { width: calc(var(--s) * 26); height: calc(var(--s) * 26); object-fit: contain; opacity: .45; filter: grayscale(.6) drop-shadow(0 0 calc(var(--s) * 1) #000); transition: transform .12s, opacity .12s; }
+#samBar img.on { opacity: 1; filter: drop-shadow(0 0 calc(var(--s) * 3) #ffd84a); transform: scale(1.18); }
+#samName { position: absolute; left: 50%; bottom: calc(100% + var(--s) * 4); transform: translateX(-50%); white-space: nowrap; font-size: calc(var(--s) * 8); color: #ffe27a; text-shadow: var(--s) var(--s) 0 #000; }
+#samFlash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 6; }
+#samScope { position: fixed; inset: 0; display: none; pointer-events: none; z-index: 3; background: radial-gradient(circle at center, transparent 0, transparent 34vh, #000 34.3vh); }
+#samScope::before, #samScope::after { content: ''; position: absolute; background: rgba(0, 0, 0, 0.8); }
+#samScope::before { left: 50%; top: 16vh; bottom: 16vh; width: 1px; }
+#samScope::after { top: 50%; left: calc(50% - 34vh); right: calc(50% - 34vh); height: 1px; }
