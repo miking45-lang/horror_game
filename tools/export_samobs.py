@@ -31,6 +31,12 @@ SND_VARIANTS = 2
 KEEP = ('id', 'title', 'archetype', 'speed', 'height', 'radius', 'shot', 'cooldown', 'burst', 'rest', 'range', 'reach', 'damage',
         'muzzle_pos', 'fire_time', 'melee_hit_time', 'death_time', 'leap', 'charge', 'charge_speed', 'boss', 'health', 'egg', 'gun_list')
 STEP_ROLES = ('run', 'walk', 'charge')
+# облик владельца Уг-Зан: роли сверх обычных, звуки, текстуры покрупнее, ходьба вбок и назад из файлов игры
+UGH = 'ss3_ughzan'
+UGH_ROLES = ('raise_l', 'raise_r', 'anger')
+UGH_SND = ('anger', 'snarl', 'prepare', 'unprepare', 'shockwave', 'music1')
+UGH_GAME_CLIPS = {'walk_back': 'Walk_Back', 'walk_left': 'Walk_Left', 'walk_right': 'Walk_Right'}
+UGH_MDL = 'Content/SeriousSam3/Models/Enemies/Boss_Ughzan/Boss_Ughzan.mdl'
 
 
 def read_ssm1(path):
@@ -103,15 +109,51 @@ def model(name, max_tex, keep_clips=True):
     clips = {}
     if keep_clips:
         for role, c in m['clips'].items():
-            if not is_wanted(role):
+            if not is_wanted(role) and not (name == UGH and role in UGH_ROLES):
                 continue
             mask = sorted(c['mask'])
             qs = c['q'][:, mask, :]
             pc = X.pack_clip(c['frames'], c['fps'], mask, m['roots'], qs, c['p'])
             pc['hit'] = X.r5(c['hit'])
             clips[role] = pc
+        if name == UGH:
+            clips.update(ugh_game_clips(m))
     v = m['v']
     return X.pack_model(name, m['bones'], texk, m['groups'], v['p'], v['n'], v['t'], v['b'], v['w'], m['idx'], clips, {})
+
+
+def ugh_game_clips(m):
+    """Walk_Left, Walk_Right, Walk_Back: в экспорте мода их нет, берём из модели игры (пакеты редактора 70_* пропускаем: там текстовый формат)."""
+    sys.path.insert(0, X.SS2TD)
+    import glob
+    import pack as packmod
+    import model as gm
+    from export_mc import clip_unit
+    og = glob.glob
+    packmod.glob.glob = lambda x, **k: [f for f in og(x, **k) if not os.path.basename(f).startswith('70_')]
+    try:
+        P = packmod.Pack()
+    finally:
+        packmod.glob.glob = og
+    md = gm.load_model(P, UGH_MDL)
+    bones = gm.load_bones(P, md)
+    cl = gm.load_clips(P, md)
+    names = [b[0] for b in m['bones']]
+    scale = m['bones'][0][3][1] / bones[0].p[1]
+    out = {}
+    for role, cn in UGH_GAME_CLIPS.items():
+        c = cl[cn]
+        unit = clip_unit(bones, c, scale)
+        byname = {b.name: b for b in bones}
+        mask = [i for i, n in enumerate(names) if n in c.rot and n in byname]
+        pbs = [i for i, n in enumerate(names) if n in c.pos and n in byname]
+        qs, ps = [], []
+        for f in range(c.nframes + 1):
+            qs.append([c.local(byname[names[i]], f)[0] for i in mask])
+            ps.append([[x * scale * unit for x in c.local(byname[names[i]], f)[1]] for i in pbs])
+        out[role] = X.pack_clip(c.nframes, 1.0 / c.spf if c.spf else 30.0, mask, pbs, qs, ps)
+    print('  ходьба из игры: масштаб %.3f, клипы %s' % (scale, ' '.join(out)))
+    return out
 
 
 def sounds(mid):
@@ -119,7 +161,7 @@ def sounds(mid):
     if not os.path.isdir(folder):
         return
     files = os.listdir(folder)
-    for role in SND:
+    for role in SND + (UGH_SND if mid == UGH else ()):
         got = sorted(n for n in files if n == role + '.ogg' or (n.startswith(role + '_') and n.endswith('.ogg')))[:SND_VARIANTS]
         if got:
             X.SOUNDS['mob.%s.%s' % (mid, role)] = [X.BLOB.add(open(os.path.join(folder, n), 'rb').read()) for n in got]
@@ -144,7 +186,11 @@ def main():
     for r in roster:
         mid = r['id']
         start = len(X.BLOB.b)
-        models['mob_' + mid] = model(mid, tex)
+        models['mob_' + mid] = model(mid, 512 if mid == UGH else tex)
+        for g in r.get('gun_list') or []:           # у пушек босса свои снаряды
+            sk = g.get('skin')
+            if sk and 'mobp_' + sk not in models and os.path.exists(os.path.join(A, 'ssm', 'proj_%s.ssm' % sk)):
+                models['mobp_' + sk] = model('proj_' + sk, 128, False)
         if os.path.exists(os.path.join(A, 'ssm', 'proj_%s.ssm' % mid)):
             models['mobp_' + mid] = model('proj_' + mid, 128, False)
         sounds(mid)

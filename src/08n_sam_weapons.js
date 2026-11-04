@@ -365,7 +365,7 @@ Object.assign(Sam, {
     const k = s.kind;
     if (k.endsWith('flame')) return;
     if (k.endsWith('laser')) { this.burst(s.pd.boom, s.x, s.y, s.z, 0.6); if (s.mat) this.sound('hit.' + s.mat, s.x, s.y, s.z, 0.4); return; }
-    this.burst(s.pd.boom, s.x, s.y, s.z, k.endsWith('cannonball') ? 1.4 : 1);
+    this.burst(s.pd.boom, s.x, s.y, s.z, s.fxS || (k.endsWith('cannonball') ? 1.4 : 1));
     this.sound('proj_' + k + '.hit', s.x, s.y, s.z, 1.4, 0.95 + Math.random() * 0.1);
     if (!s.blast) return;
     // ударная волна: камера трясётся, игроки рядом получают урон (считает тот, кто стрелял)

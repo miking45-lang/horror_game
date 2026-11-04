@@ -259,6 +259,7 @@ const Game = {
         else if ((c === 'Escape' || c === 'Numpad5') && Menus.cur === 'morph') { Menus.hide(); this.captureMouse(true); }
         return;
       }
+      if (Ugh.on() && /^Numpad[02456]$/.test(c) && Net.canCmd()) { e.preventDefault(); if (!e.repeat) Ugh.key(c); return; }   // облик Уг-Зана: пушки, топот, рёв; меню — NumPad 0
       if (c === 'Numpad5' && Net.canCmd()) { e.preventDefault(); Menus.show('morph'); this.releaseMouse(); return; }
       if ((c === 'Numpad4' || c === 'Numpad6') && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.setStatic(c === 'Numpad4'); return; }
       if (c === 'Numpad3' && Net.canCmd() && Net.form === 'creature') { e.preventDefault(); if (!e.repeat) Net.triggerMaw(); return; }
@@ -468,12 +469,14 @@ const Game = {
         if (UI.gui || Menus.cur) { const keep = Input.keys; Input.keys = {}; playerPhysics(sdt, this.mode === 'creative'); Input.keys = keep; }
         else playerPhysics(sdt, this.mode === 'creative');
         if (Sam.on()) { p.breakP = 0; p.swinging = false; p.target = null; if (UI.gui || Menus.cur || !this.locked()) Sam.fireHeld = Sam.aimHeld = false; Sam.update(sdt); }   // облик Сэма: вместо рук и блоков — оружие
+        else if (Ugh.on()) { p.breakP = 0; p.swinging = false; p.target = null; }   // великан не копает и не ставит блоки
         else if (!UI.gui && !Menus.cur && this.locked()) { Net.cap++; try { playerInteract(sdt); } finally { Net.cap--; } } else { p.breakP = 0; p.swinging = false; p.target = null; }
         survivalTick(sdt);
       }
       if (p.equip < 1) p.equip = Math.min(1, p.equip + sdt * 4);
       Ents.update(sdt);
       SamMobs.update(sdt);   // мобы Сэма из яиц призыва
+      Ugh.update(sdt);       // облик Уг-Зана и музыка босса
       if (!Sam.on() && Sam.state === 'ready') Sam.tickWorld(sdt);   // снаряды и частицы чужого Сэма
       if (!UI.gui && !Menus.cur && !Net.observer()) Glimpse.update(sdt);
       Fluid.update(sdt); Net.cap++; try { Switch.tick(sdt); } finally { Net.cap--; }
@@ -495,14 +498,14 @@ const Game = {
     this.curFov += (targetFov - this.curFov) * (1 - Math.exp(-10 * dt));
     const ph = p.bob * 1.7, ba = this.settings.bob ? p.bobAmt : 0;
     const cam = {
-      x: p.x + Math.cos(p.yaw) * Math.sin(ph) * 0.045 * ba, y: p.y + EYE * (p.hs || 1) - (p.sneaking ? 0.1 : 0) + (-Math.abs(Math.cos(ph)) * 0.07 + 0.035) * ba,
+      x: p.x + Math.cos(p.yaw) * Math.sin(ph) * 0.045 * ba, y: p.y + (Ugh.on() ? UGH_EYE : EYE * (p.hs || 1)) - (p.sneaking ? 0.1 : 0) + (-Math.abs(Math.cos(ph)) * 0.07 + 0.035) * ba,
       z: p.z - Math.sin(p.yaw) * Math.sin(ph) * 0.045 * ba, yaw: p.yaw, pitch: p.pitch, fov: this.curFov,
       roll: Math.sin(ph) * 0.006 * ba + (p.hurtT > 0 ? Math.sin(p.hurtT * 30) * 0.03 : 0)
     };
     if (Sam.shake > 0 && !p.dead) { const k = Sam.shake * 0.06; cam.yaw += (Math.random() - 0.5) * k; cam.pitch += (Math.random() - 0.5) * k; cam.roll += (Math.random() - 0.5) * k * 0.5; }
     if (p.dead) { cam.y = p.y + 0.3; cam.roll = 0.5; }
     else if (this.view) {   // F5: камера позади или спереди, не залезает в блоки
-      const d = lookDir(), s = this.view === 1 ? -1 : 1, D = 4 * Math.max(1, p.hs || 1) + (Net.form === 'creature' ? 1.5 : 0);
+      const d = lookDir(), s = this.view === 1 ? -1 : 1, D = Ugh.on() ? UGH_CAM : 4 * Math.max(1, p.hs || 1) + (Net.form === 'creature' ? 1.5 : 0);
       let t = 0.3;
       for (; t < D; t += 0.1) if (SOLID[World.get(Math.floor(cam.x + d[0] * s * t), Math.floor(cam.y + d[1] * s * t), Math.floor(cam.z + d[2] * s * t))]) break;
       t = Math.max(0.3, Math.min(D, t) - 0.3);
@@ -518,7 +521,7 @@ const Game = {
     const fig = Ents.buildFigure(this.batches.fig, cam);
     const scene = {
       ents: Ents.build(this.batches.ents, cam), figure: fig, figureColor: [0.022, 0.02, 0.026, 1],
-      crack: Sam.on() ? null : tg.crack, outline: Sam.on() ? null : tg.outline, hand: (Sam.on() || UI.hideHud || p.dead || this.view || sceneCam || Ents.mawS || Ents.slashS || Ents.burstS) ? null : this.buildHand(),
+      crack: Sam.on() ? null : tg.crack, outline: Sam.on() ? null : tg.outline, hand: (Sam.on() || Ugh.on() || UI.hideHud || p.dead || this.view || sceneCam || Ents.mawS || Ents.slashS || Ents.burstS) ? null : this.buildHand(),
       sam: Sam.state === 'ready', samView: Sam.on() && !(UI.hideHud || p.dead || this.view || sceneCam || Ents.mawS || Ents.slashS || Ents.burstS),
       mutant: Ents.buildMutant(this.batches.mutant, this.batches.mutantEyes, cam, Ents.killL || Ents.mawL || Ents.slashL || Ents.obsCreature() || Net.morphMutant() || Net.selfMutant() || undefined), mutantEyes: this.batches.mutantEyes, mutantFog: Ents.mutant.day ? 0.45 : 1,
       ghost: Ents.buildMutant(this.batches.ghost, this.batches.ghostEyes, cam, Ents.ghost), ghostEyes: this.batches.ghostEyes

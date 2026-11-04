@@ -112,6 +112,7 @@ Object.assign(Sam, {
       }
     }
     SamMobs.draw(VP, cam, env);   // мобы из яиц призыва
+    Ugh.draw(VP, cam, env);       // игроки в облике Уг-Зана
     // снаряды: модели по направлению полёта
     for (const s of this.shots) {
       const mdl = s.mdl ? this.models[s.mdl] : s.pd.model && this.models[s.pd.model]; if (!mdl) continue;
@@ -120,6 +121,7 @@ Object.assign(Sam, {
       m4mul(M, M, m4rotY(R, Math.atan2(-s.vx, -s.vz)));
       m4mul(M, M, m4rotX(R, Math.asin(clamp(s.vy / sp, -1, 1))));
       if (s.kind.endsWith('cannonball')) m4mul(M, M, m4rotX(R, s.age * 12));
+      if (s.mS) m4mul(M, M, m4scale(R, s.mS, s.mS, s.mS));
       mdl.rest(); mdl.fk();
       const l = World.light(Math.floor(s.x), Math.floor(s.y), Math.floor(s.z));
       this.drawModel(mdl, VP, M, env, { sky: (l >> 4) / 15, blk: (l & 15) / 15, flash: s.kind.endsWith('laser') ? 1.5 : 0 });

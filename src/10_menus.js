@@ -153,9 +153,11 @@ const Menus = {
         ${this.btn(mark('creature') + 'Основное существо', 'form:creature')}
         ${this.btn(mark('black') + 'Чёрный скин', 'form:black')}
         ${this.btn(mark('sam') + 'Серьёзный Сэм', 'form:sam')}
+        ${this.btn(mark('ugh') + 'Уг-Зан', 'form:ugh')}
         ${this.btn(mark('player') + 'Игрок', 'form:player')}
         <div class="note">Существо: игрок видит вас им, по мере приближения у него растут помехи, а его события с существом на это время прекращаются. В облике существа и чёрного скина ник скрыт.</div>
         <div class="note">Сэм: оружие Serious Sam HD — 1–0 и колесо выбирают, ЛКМ стреляет, ПКМ — прицел снайперки.</div>
+        <div class="note">Уг-Зан: NumPad 4 и 6 — левая и правая пушка, 2 — топот, 5 — рёв, 0 — это меню. У всех играет музыка босса.</div>
         ${this.btn('Отмена', 'morphClose')}</div>`;
     } else if (name === 'death') {
       h = `<div class="mtitle death">Вы погибли!</div><div class="note">Вещи остались на месте гибели</div><div class="col">${this.btn('Возродиться', 'respawn')}${this.btn('Выйти в меню', 'quit')}</div>`;

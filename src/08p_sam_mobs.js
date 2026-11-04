@@ -306,13 +306,13 @@ const SamMobs = {
     }
     const pd = Sam.D.proj[sd.kind]; if (!pd) return;
     if (sd.lob) dir[1] += L / (sd.speed * sd.speed) * 7;
-    const l2 = Math.hypot(...dir), v = dir.map(x => x / l2 * sd.speed), mdl = T.proj ? 'mobp_' + T.id : null;
+    const l2 = Math.hypot(...dir), v = dir.map(x => x / l2 * sd.speed), mdl = gun && gun.skin && this.D.models['mobp_' + gun.skin] ? 'mobp_' + gun.skin : T.proj ? 'mobp_' + T.id : null;
     if (mdl) this.model(mdl);
     this.addShot(sd, pd, f, v, mdl, T.id, true);
     if (this.auth && Net.role && Net.ch) Net.send('smf', { t: (gun && gun.shot) || T.shot, m: T.id, f: f.map(x => +x.toFixed(2)), v: v.map(x => +x.toFixed(2)) });
   },
-  addShot(sd, pd, f, v, mdl, id, enemy) {
-    Sam.shots.push({ kind: sd.kind, pd, x: f[0], y: f[1], z: f[2], px: f[0], py: f[1], pz: f[2], vx: v[0], vy: v[1], vz: v[2], age: 0, life: 5, mine: false, enemy, fiery: false, dmg: sd.dmg, blast: sd.blast ? sd.blast * 2 : 0, acc: new Float32Array(16), bounces: 0, mdl, noTrail: sd.noTrail });
+  addShot(sd, pd, f, v, mdl, id, enemy, extra) {
+    Sam.shots.push({ ...extra, kind: sd.kind, pd, x: f[0], y: f[1], z: f[2], px: f[0], py: f[1], pz: f[2], vx: v[0], vy: v[1], vz: v[2], age: 0, life: 5, mine: false, enemy, fiery: false, dmg: sd.dmg, blast: sd.blast ? sd.blast * 2 : 0, acc: new Float32Array(16), bounces: 0, mdl, noTrail: sd.noTrail });
   },
   tracerE: { name: 'tracer', tex: null, additive: false, cols: 1, rows: 1, rnd: false, rate: 1, life: [0.05, 0.12], speed: [0, 0], spin: [0, 0], size: [0.05, 0.08], rot: [0, 0], grow: 1, gravity: 0, colors: [[0, 255, 225, 130, 255]], alphas: [[0, 0, 0, 0, 255], [1, 0, 0, 0, 0]], intensity: [] },
   tracer(f, d, len) { const n = Math.min(14, Math.ceil(len / 1.5)); for (let k = 1; k <= n; k++) { const t = k / n * len; Sam.spawn(this.tracerE, f[0] + d[0] * t, f[1] + d[1] * t, f[2] + d[2] * t, 1); } },
@@ -456,12 +456,12 @@ const SamMobs = {
   },
   onHit(v) { if (!v || !this.auth) return; const m = this.list.find(q => q.i === v.i); if (m) this.damage(m, v.d, v.k); },
   onShot(v) {
-    if (!v || this.auth || Sam.state !== 'ready') return;
+    if (!v || (this.auth && !v.g) || Sam.state !== 'ready') return;
     if (v.x) { Sam.burst((Sam.D.proj.hd_rocket || {}).boom, v.f[0], v.f[1], v.f[2], v.s || 1); Sam.sound('proj_hd_rocket.hit', v.f[0], v.f[1], v.f[2], 1.4, 0.9); return; }
     const sd = SAMOB_SHOTS[v.t], pd = sd && Sam.D.proj[sd.kind]; if (!pd) return;
-    const T = SAMOB_LIST.find(q => q.id === v.m), mdl = T && T.proj && this.state === 'ready' ? 'mobp_' + T.id : null;
+    const T = SAMOB_LIST.find(q => q.id === v.m), mdl = this.state !== 'ready' ? null : v.g || (T && T.proj ? 'mobp_' + T.id : null);
     if (mdl) this.model(mdl);
-    this.addShot(sd, pd, v.f, v.v, mdl, v.m, false);
+    this.addShot(v.b ? { ...sd, blast: v.b } : sd, pd, v.f, v.v, mdl, v.m, false, v.k ? { mS: v.k, fxS: v.x2 } : undefined);
   },
   // ---------- отрисовка (из Sam.drawWorld) ----------
   draw(VP, cam, env) {
