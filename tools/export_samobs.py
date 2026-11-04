@@ -30,6 +30,7 @@ SND_VARIANTS = 2
 # поля roster.json, которыми пользуется поведение
 KEEP = ('id', 'title', 'archetype', 'speed', 'height', 'radius', 'shot', 'cooldown', 'burst', 'rest', 'range', 'reach', 'damage',
         'muzzle_pos', 'fire_time', 'melee_hit_time', 'death_time', 'leap', 'charge', 'charge_speed', 'boss', 'health', 'egg', 'gun_list')
+STEP_ROLES = ('run', 'walk', 'charge')
 
 
 def read_ssm1(path):
@@ -130,6 +131,15 @@ def main():
     roster = json.load(open(os.path.join(RES, 'data', 'serioussam', 'roster.json'), encoding='utf-8'))['enemies']
     if only:
         roster = [r for r in roster if r['id'] in only]
+    surface = json.load(open(os.path.join(RES, 'data', 'serioussam', 'roster.json'), encoding='utf-8'))['surface_steps']
+    # шаги по поверхностям: steps.<семейство>.<материал>.<имя>
+    for fam, mats in surface.items():
+        for mat, names in mats.items():
+            for nm in names:
+                folder = os.path.join(A, 'sounds', 'steps', fam, mat)
+                got = sorted(n for n in os.listdir(folder) if n == nm + '.ogg' or (n.startswith(nm + '_') and n.endswith('.ogg')))[:3]
+                if got:
+                    X.SOUNDS['steps.%s.%s.%s' % (fam, mat, nm)] = [X.BLOB.add(open(os.path.join(folder, n), 'rb').read()) for n in got]
     models, listed = {}, []
     for r in roster:
         mid = r['id']
@@ -141,6 +151,14 @@ def main():
         e = {k: r[k] for k in KEEP if k in r}
         e['roles'] = sorted(models['mob_' + mid]['clips'])
         e['proj'] = ('mobp_' + mid) in models
+        st = r.get('steps')
+        if st:
+            e['steps'] = {'family': st['family'], 'clips': {k: v for k, v in st.get('clips', {}).items() if k in STEP_ROLES}}
+            folder = os.path.join(A, 'sounds', mid)
+            for role in st.get('sounds', {}):       # свой звук шага моба (топот хнума, биомеханоида...)
+                got = sorted(n for n in os.listdir(folder) if n == role + '.ogg' or (n.startswith(role + '_') and n.endswith('.ogg')))[:3]
+                if got:
+                    X.SOUNDS['mob.%s.%s' % (mid, role)] = [X.BLOB.add(open(os.path.join(folder, n), 'rb').read()) for n in got]
         listed.append(e)
         print('%-22s %5d КБ, вершин %6d, костей %2d, клипы: %s' % (mid, (len(X.BLOB.b) - start) // 1024, models['mob_' + mid]['nv'], len(models['mob_' + mid]['bones']), ' '.join(e['roles'])))
     meta = {'v': 1, 'models': models, 'tex': X.TEXTURES, 'snd': X.SOUNDS}
@@ -153,6 +171,7 @@ def main():
     with open(OUT, 'w', encoding='utf-8', newline='\n') as f:
         f.write('// Мобы Serious Sam для яиц призыва (tools/export_samobs.py). Не править руками.\n')
         f.write('const SAMOB_LIST = ' + json.dumps(listed, separators=(',', ':'), ensure_ascii=False) + ';\n')
+        f.write('const SAMOB_SURFACE = ' + json.dumps(surface, separators=(',', ':'), ensure_ascii=False) + ';\n')
         f.write('const SAMOB_DATA_B64 = "' + b64 + '";\n')
     print('мобов %d, пакет %d МБ (сырой %d МБ, JSON %d КБ) -> %s' % (len(listed), len(b64) // 1048576, (len(head) + len(X.BLOB.b)) // 1048576, len(js) // 1024, OUT))
 

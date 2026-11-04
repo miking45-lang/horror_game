@@ -32,6 +32,8 @@ const SAMOB_SHOTS = {
   bomb: { kind: 'hd_grenade', speed: 13, dmg: 6, blast: 2.5, lob: 1 }, cannonball: { kind: 'hd_cannonball', speed: 24, dmg: 10, blast: 3, lob: 1 },
   gun: { hit: 1, dmg: 1 }, bullet: { hit: 1, dmg: 2 }, shotgun: { hit: 6, dmg: 1, spr: 4 }
 };
+// мобы, у которых в игре шаги не размечены событиями: два шага за цикл бега
+const SAMOB_DEF_STEPS = [{ t: 0.02, mat: 'step', alt: 'step' }, { t: 0.52, mat: 'step', alt: 'step' }];
 const SAMOB_MAX = 64, SAMOB_ITEM = 400, SAMOB_CLEAR_ITEM = 399, SAMOB_ST = ['idle', 'run', 'attack', 'melee', 'wound', 'death', 'spawn'];
 
 // значок яйца: два цвета как у яиц призыва (основной из таблицы моба, крапинки темнее или светлее)
@@ -110,18 +112,58 @@ const SamMobs = {
   },
   despawnAll() { this.list = []; if (this.auth) this.netSend(true); },
   // ---------- анимация ----------
-  setState(m, st, now) {
+  setState(m, st, now, forceRole) {
     if (m.st === st && !now) return;
     const md = m.md;
-    let role = st;
+    let role = forceRole && md.clip(forceRole) ? forceRole : st;
     if (st === 'run' && m.T.charge && md.clip('charge') && m.charging) role = 'charge';
     if (st === 'melee' && !md.clip('melee')) role = 'attack';
     if (st === 'attack' && !md.clip('attack')) role = 'melee';
-    if (st === 'attack' && md.clip('attack2') && Math.random() < 0.5) role = 'attack2';
     if (st === 'run' && !md.clip('run')) role = 'walk';
     const c = md.clip(role);
     if (m.c && !now) { m.pc = m.c; m.pt = m.t; m.pl = m.loop; m.bl = 0.2; } else { m.pc = null; m.bl = 0; }
-    m.st = st; m.tt = 0; m.t = 0; m.c = c; m.loop = st === 'idle' || st === 'run'; m.hitDone = false;
+    m.st = st; m.role = role; m.tt = 0; m.t = 0; m.c = c; m.loop = st === 'idle' || st === 'run'; m.hitDone = false; m.sf = 0;
+  },
+  // выстрел другой пушкой: своя анимация отдачи с начала (та же уже идущая не перезапускается)
+  playGun(m, role) {
+    if (!m.md.clip(role) || (role === m.role && m.t < this.clipLen(m))) return;
+    m.pc = m.c; m.pt = m.t; m.pl = false; m.bl = 0.08; m.c = m.md.clip(role); m.role = role; m.t = 0; m.tt = 0;
+  },
+  // ---------- шаги: события кадров бега, звук по блоку под ногами ----------
+  surfaceOf(m) {
+    const id = World.get(Math.floor(m.x), Math.floor(m.y - 0.2), Math.floor(m.z));
+    if (!id) return null;
+    const s = Sam.material(id);
+    return s === 'ice' ? 'stone' : s;
+  },
+  footstep(m, ev) {
+    const T = m.T, vol = clamp(0.45 + T.h * 0.08, 0.45, 1), low = T.h > 3.2 ? clamp(1.15 - T.h * 0.05, 0.6, 1) : 1;
+    if (ev.snd) {
+      if (ev.len && m.stepLock > m.clock) return;
+      if (ev.len) m.stepLock = m.clock + ev.len;
+      Sam.sound('mob.' + T.id + '.' + ev.snd, m.x, m.y, m.z, vol, 0.97 + Math.random() * 0.06);
+      return;
+    }
+    const surf = this.surfaceOf(m); if (!surf) return;
+    const fam = (T.steps && T.steps.family) || (T.id.startsWith('ss3_') ? 'ss3' : 'hd'), table = SAMOB_SURFACE[fam] || {}, names = Object.keys(table[surf] || table.default || {});
+    const nm = names.includes(ev.mat) ? ev.mat : names.includes(ev.alt) ? ev.alt : names[0]; if (!nm) return;
+    const mat = table[surf] ? surf : 'default';
+    Sam.sound('steps.' + fam + '.' + mat + '.' + nm, m.x, m.y, m.z, vol, low * (0.95 + Math.random() * 0.1));
+  },
+  stepTick(m, dt) {
+    m.clock = (m.clock || 0) + dt;
+    if (m.st !== 'run' || !m.c || m.T.archetype === 'flyer' || m.c.len <= 0) return;
+    const pl = Player; if (Math.hypot(m.x - pl.x, m.y - pl.y, m.z - pl.z) > 60) return;
+    const list = (m.T.steps && m.T.steps.clips[m.role]) || SAMOB_DEF_STEPS;
+    const f = (m.t % m.c.len) / m.c.len, f0 = m.sf === undefined ? f : m.sf;
+    m.sf = f;
+    for (const ev of list) {
+      const hit = f0 <= f ? (ev.t > f0 && ev.t <= f) : (ev.t > f0 || ev.t <= f);
+      if (!hit) continue;
+      if (ev.once && m.onceDone === m.role) continue;
+      if (ev.once) m.onceDone = m.role;
+      this.footstep(m, ev);
+    }
   },
   clipLen(m) { return m.c ? m.c.len : 0.4; },
   pose(m) {
@@ -238,12 +280,19 @@ const SamMobs = {
     return true;
   },
   // ---------- выстрелы ----------
-  muzzle(m) {
-    const T = m.T, mp = T.muzzle_pos || [0, T.height * 0.65, -(T.radius || 0.6)], c = Math.cos(m.yaw), s = Math.sin(m.yaw), k = T.draw;
+  gunOf(m) { const g = m.T.gun_list; return g && g.length ? g[(m.gunI || 0) % g.length] : null; },
+  muzzle(m, gun) {
+    const T = m.T, c = Math.cos(m.yaw), s = Math.sin(m.yaw), k = T.draw;
+    let mp = T.muzzle_pos || [0, T.height * 0.65, -(T.radius || 0.6)];
+    if (gun) {
+      mp = gun.pos;
+      const b = gun.bone && this.pose(m).boneXf(gun.bone);   // по кости — ствол там, где он сейчас в анимации
+      if (b && gun.off) { const r = qrot(b.q, 0, gun.off[0], gun.off[1], gun.off[2], [0, 0, 0]); mp = [b.p[0] + r[0], b.p[1] + r[1], b.p[2] + r[2]]; }
+    }
     return [m.x + (mp[0] * c + mp[2] * s) * k, m.y + mp[1] * k, m.z + (-mp[0] * s + mp[2] * c) * k];
   },
   fire(m, tg) {
-    const T = m.T, sd = SAMOB_SHOTS[T.shot] || SAMOB_SHOTS.fireball, f = this.muzzle(m);
+    const T = m.T, gun = this.gunOf(m), sd = SAMOB_SHOTS[(gun && gun.shot) || T.shot] || SAMOB_SHOTS.fireball, f = this.muzzle(m, gun);
     const to = [tg.x - f[0], tg.y + 1 - f[1], tg.z - f[2]], L = Math.hypot(...to) || 1, dir = to.map(v => v / L);
     this.say(m, 'attack');
     if (sd.hit) {
@@ -260,7 +309,7 @@ const SamMobs = {
     const l2 = Math.hypot(...dir), v = dir.map(x => x / l2 * sd.speed), mdl = T.proj ? 'mobp_' + T.id : null;
     if (mdl) this.model(mdl);
     this.addShot(sd, pd, f, v, mdl, T.id, true);
-    if (this.auth && Net.role && Net.ch) Net.send('smf', { t: T.shot, m: T.id, f: f.map(x => +x.toFixed(2)), v: v.map(x => +x.toFixed(2)) });
+    if (this.auth && Net.role && Net.ch) Net.send('smf', { t: (gun && gun.shot) || T.shot, m: T.id, f: f.map(x => +x.toFixed(2)), v: v.map(x => +x.toFixed(2)) });
   },
   addShot(sd, pd, f, v, mdl, id, enemy) {
     Sam.shots.push({ kind: sd.kind, pd, x: f[0], y: f[1], z: f[2], px: f[0], py: f[1], pz: f[2], vx: v[0], vy: v[1], vz: v[2], age: 0, life: 5, mine: false, enemy, fiery: false, dmg: sd.dmg, blast: sd.blast ? sd.blast * 2 : 0, acc: new Float32Array(16), bounces: 0, mdl, noTrail: sd.noTrail });
@@ -325,7 +374,13 @@ const SamMobs = {
         }
       } else if (m.shots > 0) {
         m.shotT -= dt;
-        if (m.shotT <= 0) { this.fire(m, tg); m.shots--; m.shotT = Math.max(T.cooldown || 1, 0.08); }
+        if (m.animIn > 0 && (m.animIn -= dt) <= 0) { const g = this.gunOf(m); if (g) this.playGun(m, g.anim); }
+        if (m.shotT <= 0) {
+          this.fire(m, tg); m.shots--;
+          m.gunI = (m.gunI || 0) + 1;                       // следующий выстрел — из другой пушки
+          const next = this.gunOf(m), cd = Math.max(T.cooldown || 1, 0.08), lead = next ? Math.min(next.t || 0, cd * 0.9) : 0;
+          m.shotT = cd; m.animIn = next ? Math.max(cd - lead, 0.001) : 0;
+        }
       }
       if (m.tt >= this.clipLen(m) && (m.melee || m.shots <= 0)) { m.melee = false; m.rest = T.rest || T.cooldown || 1.5; m.cd = 0.5; this.setState(m, 'idle'); }
       return;
@@ -337,7 +392,9 @@ const SamMobs = {
     } else if (T.shot && m.rest <= 0 && m.cd <= 0) {
       const R = T.range || [3, 40], eyeY = m.y + T.h * 0.7, L = Math.hypot(dx, tg.y + 1 - eyeY, dz);
       if (L <= R[1] && Sam.trace([m.x, eyeY, m.z], [dx / L, (tg.y + 1 - eyeY) / L, dz / L], L) === null) {
-        m.melee = false; m.shots = T.burst || 1; m.shotT = Math.min(T.fire_time || 0.2, this.clipLen(m)); this.setState(m, 'attack'); return;
+        const g = this.gunOf(m);
+        m.melee = false; m.shots = T.burst || 1; m.animIn = 0; this.setState(m, 'attack', false, g && g.anim);
+        m.shotT = g ? (g.t || 0.01) : Math.min(T.fire_time || 0.2, this.clipLen(m)); return;
       }
     }
     // догнать
@@ -360,6 +417,7 @@ const SamMobs = {
       if (m.bl > 0) m.bl = Math.max(0, m.bl - dt);
       if (m.fl > 0) m.fl -= dt;
       m.t += dt; m.pt += dt;
+      this.stepTick(m, dt);
       if (this.auth) this.think(m, dt);
       else {
         const f = Math.min(1, dt * 10);
@@ -377,7 +435,7 @@ const SamMobs = {
   netSend(force) {
     if (!Net.role || !Net.ch) return;
     this.sentEmpty = !this.list.length;
-    Net.send('smb', { a: this.list.map(m => [m.i, m.T.ti, +m.x.toFixed(2), +m.y.toFixed(2), +m.z.toFixed(2), +m.yaw.toFixed(2), SAMOB_ST.indexOf(m.st)]) });
+    Net.send('smb', { a: this.list.map(m => [m.i, m.T.ti, +m.x.toFixed(2), +m.y.toFixed(2), +m.z.toFixed(2), +m.yaw.toFixed(2), SAMOB_ST.indexOf(m.st), m.st === 'attack' ? m.role : 0]) });
   },
   onSnap(v) {
     if (!v || !v.a || this.auth) return;
@@ -390,7 +448,8 @@ const SamMobs = {
       if (!m) { const md = this.model('mob_' + T.id); if (!md) continue; m = { i: r[0], T, md, x: r[2], y: r[3], z: r[4], yaw: r[5], t: 0, pt: 0, bl: 0 }; this.setState(m, 'idle', true); }
       m.nx = r[2]; m.ny = r[3]; m.nz = r[4]; m.nyaw = r[5];
       const st = SAMOB_ST[r[6]] || 'idle';
-      if (st !== m.st) { this.setState(m, st); if (st === 'death') this.say(m, 'death'); else if (st === 'attack') this.say(m, 'attack'); }
+      if (st !== m.st) { this.setState(m, st, false, r[7] || undefined); if (st === 'death') this.say(m, 'death'); else if (st === 'attack') this.say(m, 'attack'); }
+      else if (st === 'attack' && r[7] && r[7] !== m.role) this.playGun(m, r[7]);
       out.push(m);
     }
     this.list = out;
