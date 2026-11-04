@@ -601,6 +601,11 @@ function playerInteract(dt) {
   const hit = raycast(p.x, p.y + EYE, p.z, d[0], d[1], d[2], creative ? 5.5 : 4.6);
   p.target = hit;
   p.placeCD -= dt;
+  // моб Сэма под прицелом: удар вместо ломания блока
+  if (Input.clicked[0] && SamMobs.list.length && SamMobs.swing(p, d, hit ? Math.hypot(hit.x + 0.5 - p.x, hit.y + 0.5 - p.y - EYE, hit.z + 0.5 - p.z) : 9)) { Input.mouse[0] = false; p.swing = 0.001; }
+  // яйцо призыва мобов Сэма
+  const eggSt = p.held();
+  if (Input.clicked[2] && eggSt && ITEMS[eggSt.id] && (ITEMS[eggSt.id].samEgg !== undefined || ITEMS[eggSt.id].samClear) && p.placeCD <= 0 && SamMobs.useItem(eggSt)) { p.swing = 0.001; p.placeCD = 0.3; Input.mouse[2] = false; }
   // левая кнопка — ломать
   if (Input.mouse[0] && hit) {
     p.swinging = true;

@@ -473,6 +473,7 @@ const Game = {
       }
       if (p.equip < 1) p.equip = Math.min(1, p.equip + sdt * 4);
       Ents.update(sdt);
+      SamMobs.update(sdt);   // мобы Сэма из яиц призыва
       if (!Sam.on() && Sam.state === 'ready') Sam.tickWorld(sdt);   // снаряды и частицы чужого Сэма
       if (!UI.gui && !Menus.cur && !Net.observer()) Glimpse.update(sdt);
       Fluid.update(sdt); Net.cap++; try { Switch.tick(sdt); } finally { Net.cap--; }

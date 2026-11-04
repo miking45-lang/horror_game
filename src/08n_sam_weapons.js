@@ -242,6 +242,13 @@ Object.assign(Sam, {
   hitscan(d, o, dir, range, mine) {
     const h = this.trace(o, dir, range), end = h ? h.t : range;
     const pe = mine ? this.peerOnRay(o, dir, end) : null;
+    const mh = mine ? SamMobs.onRay(o, dir, pe ? pe[1] : end) : null;
+    if (mh) {
+      const p = [o[0] + dir[0] * mh[1], o[1] + dir[1] * mh[1], o[2] + dir[2] * mh[1]];
+      SamMobs.damage(mh[0], d.st.dmg);
+      this.impact(p, 'flesh', [-dir[0], -dir[1], -dir[2]]);
+      return [...p.map(x => +x.toFixed(2)), 'flesh'];
+    }
     if (pe) {
       const p = [o[0] + dir[0] * pe[1], o[1] + dir[1] * pe[1], o[2] + dir[2] * pe[1]];
       Net.samDamage && Net.samDamage(pe[0], d.st.dmg);
@@ -260,6 +267,8 @@ Object.assign(Sam, {
   },
   melee(d) {
     const p = Player, eye = [p.x, p.y + EYE, p.z], dir = lookDir(), reach = d.st.melee;
+    const mh = SamMobs.onRay(eye, dir, reach + 0.6);
+    if (mh) { SamMobs.damage(mh[0], d.st.dmg); this.burstBlood([eye[0] + dir[0] * mh[1], eye[1] + dir[1] * mh[1], eye[2] + dir[2] * mh[1]]); if (d.id === 'hd_knife') this.sound('hd_knife.slash', mh[0].x, mh[0].y + 1, mh[0].z); }
     for (const [u, q] of Net.peers) {
       if (q.dd) continue;
       const to = [q.cx - eye[0], q.cy + 0.9 - eye[1], q.cz - eye[2]], dist = Math.hypot(...to);
@@ -275,6 +284,7 @@ Object.assign(Sam, {
     for (let i = 0; i < 10; i++) { const a = i / 10 * PI2; this.burst((this.D.proj.hd_cannonball || {}).boom || [], at[0] + Math.cos(a) * 9, at[1] + 2, at[2] + Math.sin(a) * 9, 2.5); }
     this.sound('proj_hd_cannonball.hit', at[0], at[1], at[2], 1.4, 0.6);
     if (mine) for (const [u, q] of Net.peers) if (!q.dd && Math.hypot(q.cx - at[0], q.cy - at[1], q.cz - at[2]) < 32) Net.samDamage && Net.samDamage(u, 300);
+    if (mine) for (const m of SamMobs.list.slice()) if (Math.hypot(m.x - at[0], m.y - at[1], m.z - at[2]) < 32) SamMobs.damage(m, 300);
   },
   // ---------- снаряды ----------
   shots: [],
@@ -330,7 +340,11 @@ Object.assign(Sam, {
       if (stepLen > 0) {
         const dir = [s.vx / sp, s.vy / sp, s.vz / sp], h = this.trace([s.x, s.y, s.z], dir, stepLen);
         const pe = s.mine && !k.endsWith('flame') ? this.peerOnRay([s.x, s.y, s.z], dir, h ? h.t : stepLen) : null;
-        if (pe) { s.x += dir[0] * pe[1]; s.y += dir[1] * pe[1]; s.z += dir[2] * pe[1]; if (s.mine && !s.blast) Net.samDamage && Net.samDamage(pe[0], s.dmg); done = true; }
+        const mh = s.mine ? SamMobs.onRay([s.x, s.y, s.z], dir, pe ? pe[1] : h ? h.t : stepLen) : null;
+        const ph = s.enemy ? SamMobs.playerOnRay([s.x, s.y, s.z], dir, h ? h.t : stepLen) : null;
+        if (mh) { s.x += dir[0] * mh[1]; s.y += dir[1] * mh[1]; s.z += dir[2] * mh[1]; if (!s.blast) { SamMobs.damage(mh[0], s.dmg); this.burstBlood([s.x, s.y, s.z]); } done = true; }
+        else if (ph) { s.x += dir[0] * ph.t; s.y += dir[1] * ph.t; s.z += dir[2] * ph.t; if (!s.blast) SamMobs.hurt(ph, s.dmg); done = true; }
+        else if (pe) { s.x += dir[0] * pe[1]; s.y += dir[1] * pe[1]; s.z += dir[2] * pe[1]; if (s.mine && !s.blast) Net.samDamage && Net.samDamage(pe[0], s.dmg); done = true; }
         else if (h) {
           const bounce = (k.endsWith('grenade') || (k.endsWith('cannonball') && !s.fiery)) && s.age < s.life;
           if (bounce && FKIND[h.id] !== 1) {
@@ -357,6 +371,11 @@ Object.assign(Sam, {
     // ударная волна: камера трясётся, игроки рядом получают урон (считает тот, кто стрелял)
     const p = Player, dd = Math.hypot(p.x - s.x, p.y + 1 - s.y, p.z - s.z);
     this.shake = Math.max(this.shake || 0, clamp(1 - dd / (s.blast * 4), 0, 1) * 0.8);
+    if (s.enemy) SamMobs.blastPlayers(s);
+    if (s.mine) for (const m of SamMobs.list.slice()) {
+      const r = Math.hypot(m.x - s.x, m.y + m.T.h * 0.5 - s.y, m.z - s.z) - m.T.r * 0.6;
+      if (r < s.blast * 1.6) SamMobs.damage(m, Math.max(1, s.dmg * 1.6 * (1 - Math.max(r, 0) / (s.blast * 1.6))));
+    }
     if (s.mine) for (const [u, q] of Net.peers) {
       if (q.dd) continue;
       const r = Math.hypot(q.cx - s.x, q.cy + 0.9 - s.y, q.cz - s.z);
@@ -421,7 +440,7 @@ Object.assign(Sam, {
   },
   trail(s) {
     const set = s.pd; if (!set || !set.trail) return;
-    if (s.kind.endsWith('cannonball') && !s.fiery) return;
+    if (s.noTrail || (s.kind.endsWith('cannonball') && !s.fiery)) return;
     for (let i = 0; i < set.trail.length && i < 16; i++) {
       const e = set.trail[i]; if (e.life[0] < 0) continue;
       s.acc[i] += Math.min(e.rate, 200) / 60;

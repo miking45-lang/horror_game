@@ -924,6 +924,11 @@ function genBtnItem(t, fn, edge) {
 }
 addTile('btn_stone_item', t => genBtnItem(t, (x, y) => shade(C('#8a8a8a'), 0.92 + ((x * 3 + y * 5) % 4) * 0.04)));
 addTile('btn_wood_item', t => genBtnItem(t, (x, y) => shade(C('#9c7b4b'), 0.9 + ((x + y * 2) % 3) * 0.06)));
+addTile('sam_egg', t => {
+  const R = ['................', '................', '......oooo......', '.....oAAAAo.....', '....oAABAAAo....', '....oAAAAABo....', '...oABAAAAAAo...', '...oAAAABAAAo...', '...oAAAAAAAAo...', '...oABAAABAAo...', '...oAAAAAAAAo...', '....oAABAAAo....', '.....oooooo.....', '................', '................', '................'];
+  const c = { o: [26, 26, 26], A: [150, 120, 70], B: [70, 45, 25] };
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const v = R[y][x], i = (y * 16 + x) * 4; if (v === '.') { t.d[i + 3] = 0; continue; } t.d[i] = c[v][0]; t.d[i + 1] = c[v][1]; t.d[i + 2] = c[v][2]; t.d[i + 3] = 255; }
+});
 addTile('clay_ball', t => {
   clearTile(t);
   drawPixels(t, ['', '', '', '', '.....hhhh.....', '...hhHHHHmmm...', '..hHHHmmmmmmd..', '..hHmmmmmmmmd..', '..hmmmmmmmmdd..', '..mmmmmmmmddd..',

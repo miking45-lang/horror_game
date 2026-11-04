@@ -111,9 +111,10 @@ Object.assign(Sam, {
         }
       }
     }
+    SamMobs.draw(VP, cam, env);   // мобы из яиц призыва
     // снаряды: модели по направлению полёта
     for (const s of this.shots) {
-      const mdl = s.pd.model && this.models[s.pd.model]; if (!mdl) continue;
+      const mdl = s.mdl ? this.models[s.mdl] : s.pd.model && this.models[s.pd.model]; if (!mdl) continue;
       const sp = Math.hypot(s.vx, s.vy, s.vz) || 1, M = m4(), R = m4();
       m4translate(M, s.x - cam.x, s.y - cam.y, s.z - cam.z);
       m4mul(M, M, m4rotY(R, Math.atan2(-s.vx, -s.vz)));

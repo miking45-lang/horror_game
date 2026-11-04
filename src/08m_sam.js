@@ -6,7 +6,7 @@
 const SAM_VS = `#version 300 es
 layout(location=0) in vec4 aPos; layout(location=1) in vec4 aNrm; layout(location=2) in vec2 aUV;
 layout(location=3) in uvec4 aBone; layout(location=4) in vec4 aW;
-uniform mat4 uVP; uniform mat4 uM; uniform vec3 uLo; uniform vec3 uSpan; uniform vec4 uBones[192];
+uniform mat4 uVP; uniform mat4 uM; uniform vec3 uLo; uniform vec3 uSpan; uniform vec4 uBones[243];
 out vec2 vUV; out vec3 vN; out vec3 vRel;
 vec3 xf(uint b, vec3 p, float w1) { int i = int(b) * 3; return vec3(dot(uBones[i], vec4(p, w1)), dot(uBones[i + 1], vec4(p, w1)), dot(uBones[i + 2], vec4(p, w1))); }
 void main(){
@@ -91,15 +91,17 @@ class SamModel {
     this.gl = null; this.rest();
   }
   clip(n) { return n ? this.clips[n] || null : null; }
-  // Относительный клип (выстрелы Body_Fire_*): первый кадр — единичные повороты, смещения нулевые. Это добавка
-  // к текущей позе, а не поза; если применить её как абсолютную, все кости сожмутся к тазу.
+  // Относительный клип (выстрелы Body_Fire_*, стрельба арахноида): смещения нулевые, в первом кадре почти все
+  // повороты единичные. Это добавка к текущей позе, а не поза; как абсолютная она сжала бы или положила всё тело.
   static isRelative(q, p, nm) {
+    if (!nm) return false;
+    if (p) for (let i = 0; i < p.length; i++) if (Math.abs(p[i]) > 1e-4) return false;
+    let same = 0;
     for (let k = 0; k < nm; k++) {
       const j = k * 4;
-      if (Math.abs(q[j]) > 8 || Math.abs(q[j + 1]) > 8 || Math.abs(q[j + 2]) > 8 || Math.abs(q[j + 3]) < 32700) return false;
+      if (Math.abs(q[j]) <= 8 && Math.abs(q[j + 1]) <= 8 && Math.abs(q[j + 2]) <= 8 && Math.abs(q[j + 3]) >= 32700) same++;
     }
-    if (p) for (let i = 0; i < p.length; i++) if (Math.abs(p[i]) > 1e-4) return false;
-    return nm > 0;
+    return same >= nm * 0.9;
   }
   rest() { this.lq.set(this.restQ); this.lp.set(this.restP); }
   // клип в момент t поверх текущей позы с весом w (кости вне mask не трогаем)
@@ -228,7 +230,7 @@ const Sam = {
     })().catch(e => { this.state = 'error'; console.error(e); UI.toast('Облик Сэма не загрузился: ' + e.message); });
     return this.loading;
   },
-  bytes(r) { return this.bin.subarray(r[0], r[0] + r[1]); },
+  bytes(r) { return (r.bin || this.bin).subarray(r[0], r[0] + r[1]); },   // r.bin — у блоков из пакета мобов
   // ---------- ресурсы на видеокарте ----------
   ensureGL() {
     if (this.prog) return true;

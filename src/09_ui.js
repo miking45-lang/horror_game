@@ -28,6 +28,8 @@ function buildIcons() {
       draw(A2, right, k, -k / 2, 0, k, S / 2, m + W / 2);
       draw(A0, top, k, k / 2, -k, k / 2, S / 2, m);
       x.setTransform(1, 0, 0, 1, 0, 0);
+    } else if (it.iconFn) {
+      it.iconFn(x, S);
     } else {
       const t = it.sprite !== undefined ? it.sprite : d.icon;
       const [tx, ty] = tileUV(t);
@@ -306,7 +308,7 @@ const UI = {
     this.openScreen(id === B.CHEST ? 'chest' : 'furnace');
   },
   openCreative() {
-    const all = Object.keys(ITEMS).map(Number).filter(id => ITEMS[id]);
+    const all = Object.keys(ITEMS).map(Number).filter(id => ITEMS[id] && (!ITEMS[id].ownerOnly || Net.isOwner));   // яйца мобов Сэма — только владельцу
     const rows = Math.ceil(all.length / 9), vis = 5;
     this.creativeAll = all;
     this.creativeScroll = clamp(this.creativeScroll, 0, Math.max(0, rows - vis));
