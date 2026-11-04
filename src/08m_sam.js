@@ -80,7 +80,7 @@ class SamModel {
       const c = m.clips[cn];
       const q = new Int16Array(bin.buffer, bin.byteOffset + c.q[0], c.q[1] / 2);
       const p = c.p ? new Float32Array(bin.buffer.slice(bin.byteOffset + c.p[0], bin.byteOffset + c.p[0] + c.p[1])) : null;
-      this.clips[cn] = { name: cn, n: c.n, fps: c.fps, mask: c.mask, pb: c.pb, q, p, len: c.n / Math.max(c.fps, 1) };
+      this.clips[cn] = { name: cn, n: c.n, fps: c.fps, mask: c.mask, pb: c.pb, q, p, len: c.n / Math.max(c.fps, 1), rel: SamModel.isRelative(q, p, c.mask.length) };
     }
     this.loc = m.loc || {};
     // поза
@@ -91,6 +91,16 @@ class SamModel {
     this.gl = null; this.rest();
   }
   clip(n) { return n ? this.clips[n] || null : null; }
+  // Относительный клип (выстрелы Body_Fire_*): первый кадр — единичные повороты, смещения нулевые. Это добавка
+  // к текущей позе, а не поза; если применить её как абсолютную, все кости сожмутся к тазу.
+  static isRelative(q, p, nm) {
+    for (let k = 0; k < nm; k++) {
+      const j = k * 4;
+      if (Math.abs(q[j]) > 8 || Math.abs(q[j + 1]) > 8 || Math.abs(q[j + 2]) > 8 || Math.abs(q[j + 3]) < 32700) return false;
+    }
+    if (p) for (let i = 0; i < p.length; i++) if (Math.abs(p[i]) > 1e-4) return false;
+    return nm > 0;
+  }
   rest() { this.lq.set(this.restQ); this.lp.set(this.restP); }
   // клип в момент t поверх текущей позы с весом w (кости вне mask не трогаем)
   layer(c, t, loop, w = 1) {
@@ -99,6 +109,24 @@ class SamModel {
     f = loop ? ((f % n) + n) % n : clamp(f, 0, c.n);
     const i0 = Math.floor(f), i1 = Math.min(i0 + 1, c.n), a = f - i0, mk = c.mask, nm = mk.length, q = c.q, S = 1 / 32767;
     const o0 = i0 * nm * 4, o1 = i1 * nm * 4, lq = this.lq;
+    if (c.rel) {
+      // поза · добавка; вес ослабляет добавку от единичного поворота
+      const d = [0, 0, 0, 1], cur = [0, 0, 0, 1];
+      for (let k = 0; k < nm; k++) {
+        const bo = mk[k] * 4, j0 = o0 + k * 4, j1 = o1 + k * 4;
+        let x1 = q[j1] * S, y1 = q[j1 + 1] * S, z1 = q[j1 + 2] * S, w1 = q[j1 + 3] * S;
+        const x0 = q[j0] * S, y0 = q[j0 + 1] * S, z0 = q[j0 + 2] * S, w0 = q[j0 + 3] * S;
+        if (x0 * x1 + y0 * y1 + z0 * z1 + w0 * w1 < 0) { x1 = -x1; y1 = -y1; z1 = -z1; w1 = -w1; }
+        let x = x0 + (x1 - x0) * a, y = y0 + (y1 - y0) * a, z = z0 + (z1 - z0) * a, ww = w0 + (w1 - w0) * a;
+        if (ww < 0) { x = -x; y = -y; z = -z; ww = -ww; }
+        x *= w; y *= w; z *= w; ww = 1 + (ww - 1) * w;
+        const l = Math.hypot(x, y, z, ww) || 1;
+        d[0] = x / l; d[1] = y / l; d[2] = z / l; d[3] = ww / l;
+        cur[0] = lq[bo]; cur[1] = lq[bo + 1]; cur[2] = lq[bo + 2]; cur[3] = lq[bo + 3];
+        qmulTo(lq, bo, cur, 0, d, 0);
+      }
+      return;
+    }
     for (let k = 0; k < nm; k++) {
       const b = mk[k], j0 = o0 + k * 4, j1 = o1 + k * 4;
       let x1 = q[j1] * S, y1 = q[j1 + 1] * S, z1 = q[j1 + 2] * S, w1 = q[j1 + 3] * S;
