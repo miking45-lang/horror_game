@@ -181,9 +181,12 @@ const SamMobs = {
     }
     return best ? [best, bt] : null;
   },
-  damage(m, d) {
-    if (!this.auth) { if (Net.send && Net.role && Net.ch) Net.send('smh', { i: m.i, d: +d.toFixed(1) }); return; }
+  // kb — отбрасывание [x, z] от удара рукой или мечом
+  damage(m, d, kb) {
+    m.fl = 0.12;
+    if (!this.auth) { if (Net.send && Net.role && Net.ch) Net.send('smh', { i: m.i, d: +d.toFixed(1), k: kb ? kb.map(v => +v.toFixed(1)) : undefined }); return; }
     if (m.st === 'death') return;
+    if (kb && m.T.h < 4) { m.kbx = kb[0]; m.kbz = kb[1]; if (m.ground) m.vy = Math.max(m.vy, 4); }
     m.hp -= d;
     if (m.hp <= 0) return this.die(m);
     if (!m.tgt) m.tgtT = 0;
@@ -213,13 +216,25 @@ const SamMobs = {
     if (this.auth && Net.role && Net.ch) Net.send('smf', { x: 1, f: c.map(v => +v.toFixed(2)), s: big ? 2 : 1.4 });
   },
   remove(m) { const k = this.list.indexOf(m); if (k >= 0) this.list.splice(k, 1); },
-  // удар в ближнем бою рукой или мечом; true — мимо блока попали по мобу
-  swing(p, d, blockT) {
-    const eye = [p.x, p.y + EYE, p.z], g = this.onRay(eye, d, Math.min(5, blockT));
-    if (!g) return false;
-    const st = p.held(), it = st && ITEMS[st.id], dmg = (it && it.tool && it.tool.dmg ? it.tool.dmg : 1) * 2;
-    this.damage(g[0], dmg);
-    Sam.state === 'ready' && Sam.burstBlood([eye[0] + d[0] * g[1], eye[1] + d[1] * g[1], eye[2] + d[2] * g[1]]);
+  // моб под прицелом в пределах удара, блок перед ним закрывает: [моб, расстояние] или null
+  aimed(p, d) {
+    const eye = [p.x, p.y + EYE, p.z], h = Sam.trace(eye, d, 5);
+    return this.onRay(eye, d, h ? h.t : 5);
+  },
+  // удар рукой или оружием из инвентаря; урон — из предмета (меч), перезарядка как у ударов в Minecraft
+  swing(p, d, g) {
+    if (p.atkCD > 0) return false;
+    const st = p.held(), it = st && ITEMS[st.id], t = it && it.tool, m = g[0], eye = [p.x, p.y + EYE, p.z];
+    p.atkCD = t && t.type === 'sword' ? 0.45 : 0.35; p.swing = 0.001;
+    const fl = Math.hypot(d[0], d[2]) || 1, k = m.T.h < 2.6 ? 6 : 3.5;
+    this.damage(m, (t && t.dmg ? t.dmg : 1) * 2, [d[0] / fl * k, d[2] / fl * k]);
+    Sam.burstBlood([eye[0] + d[0] * g[1], eye[1] + d[1] * g[1], eye[2] + d[2] * g[1]]);
+    Sam.sound('hd_knife.slash', m.x, m.y + 1, m.z, 0.6, 0.9 + Math.random() * 0.2);
+    if (t && Game.mode === 'survival') {   // износ: меч за удар как за блок киркой, остальное вдвое быстрее (как блок мечом)
+      st.dmg = (st.dmg || 0) + (t.type === 'sword' ? 1 : 2);
+      if (st.dmg >= t.dur) { p.slots[p.selected] = null; Sfx.breakB('glass'); }
+      UI.refreshHotbar();
+    }
     return true;
   },
   // ---------- выстрелы ----------
@@ -263,8 +278,10 @@ const SamMobs = {
     m.y += ay; m.ground = false;
     if (ay !== dy) { if (m.vy < 0) m.ground = true; m.vy = 0; }
     let blocked = false;
-    b = box(); let dx = m.vx * dt, ax = sweepAxis(b[0], b[1], 0, dx); m.x += ax; if (Math.abs(ax - dx) > 1e-4) blocked = true;
-    b = box(); let dz = m.vz * dt, az = sweepAxis(b[0], b[1], 2, dz); m.z += az; if (Math.abs(az - dz) > 1e-4) blocked = true;
+    const kx = m.kbx || 0, kz = m.kbz || 0;
+    if (kx || kz) { const f = Math.exp(-7 * dt); m.kbx = Math.abs(kx * f) < 0.05 ? 0 : kx * f; m.kbz = Math.abs(kz * f) < 0.05 ? 0 : kz * f; }
+    b = box(); let dx = (m.vx + kx) * dt, ax = sweepAxis(b[0], b[1], 0, dx); m.x += ax; if (Math.abs(ax - dx) > 1e-4 && !kx) blocked = true;
+    b = box(); let dz = (m.vz + kz) * dt, az = sweepAxis(b[0], b[1], 2, dz); m.z += az; if (Math.abs(az - dz) > 1e-4 && !kz) blocked = true;
     if (blocked && m.ground && flyTo === undefined) m.vy = T.h > 4 ? 10 : 8.2;   // порог в один блок перепрыгивает
     if (m.y < -30) { this.remove(m); return false; }
     return true;
@@ -341,6 +358,7 @@ const SamMobs = {
     for (let k = list.length - 1; k >= 0; k--) {
       const m = list[k];
       if (m.bl > 0) m.bl = Math.max(0, m.bl - dt);
+      if (m.fl > 0) m.fl -= dt;
       m.t += dt; m.pt += dt;
       if (this.auth) this.think(m, dt);
       else {
@@ -377,7 +395,7 @@ const SamMobs = {
     }
     this.list = out;
   },
-  onHit(v) { if (!v || !this.auth) return; const m = this.list.find(q => q.i === v.i); if (m) this.damage(m, v.d); },
+  onHit(v) { if (!v || !this.auth) return; const m = this.list.find(q => q.i === v.i); if (m) this.damage(m, v.d, v.k); },
   onShot(v) {
     if (!v || this.auth || Sam.state !== 'ready') return;
     if (v.x) { Sam.burst((Sam.D.proj.hd_rocket || {}).boom, v.f[0], v.f[1], v.f[2], v.s || 1); Sam.sound('proj_hd_rocket.hit', v.f[0], v.f[1], v.f[2], 1.4, 0.9); return; }
@@ -401,7 +419,7 @@ const SamMobs = {
       m4translate(M, dx, m.y - cam.y, dz);
       m4mul(M, M, m4rotY(R, m.yaw));
       if (m.T.draw !== 1) m4mul(M, M, m4scale(R, m.T.draw, m.T.draw, m.T.draw));
-      Sam.drawModel(md, VP, M, env, { sky: sk / 15, blk: bk / 15 });
+      Sam.drawModel(md, VP, M, env, { sky: sk / 15, blk: bk / 15, flash: m.fl > 0 ? 0.8 : 0 });
     }
   }
 };
